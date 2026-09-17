@@ -1,0 +1,54 @@
+{
+  "description": "回声防线 ECHO LINE —— 共振塔防微信小游戏",
+  "appid": "wx87df6e7090417232",
+  "projectname": "echo-defense",
+  "compileType": "game",
+  "libVersion": "3.5.5",
+  "setting": {
+    "es6": false,
+    "enhance": false,
+    "minified": false,
+    "postcss": false,
+    "urlCheck": false,
+    "uglifyFileName": false,
+    "checkInvalidKey": true,
+    "checkSiteMap": false,
+    "compileWorklet": false,
+    "uploadWithSourceMap": true,
+    "packNpmManually": false,
+    "packNpmRelationList": [],
+    "minifyWXSS": true,
+    "minifyWXML": true,
+    "localPlugins": false,
+    "disableUseStrict": false,
+    "useCompilerPlugins": false,
+    "condition": false,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    }
+  },
+  "packOptions": {
+    "ignore": [
+      {
+        "value": "tools",
+        "type": "folder"
+      },
+      {
+        "value": "index.html",
+        "type": "file"
+      },
+      {
+        "value": "README.md",
+        "type": "file"
+      }
+    ],
+    "include": []
+  },
+  "miniprogramRoot": "./",
+  "srcMiniprogramRoot": "./",
+  "simulatorPluginLibVersion": {},
+  "isGameTourist": false,
+  "editorSetting": {}
+}

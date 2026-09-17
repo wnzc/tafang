@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>回声防线 · 启动冒烟测试</title>
+<style>body{font:13px monospace;background:#fff;color:#000;margin:12px}
+canvas{display:none}</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="out">running...</div>
+
+<!-- 加载顺序必须与 index.html 完全一致，否则测的不是真实启动路径 -->
+<script src="../js/runtime.js"></script>
+<script src="../js/util.js"></script>
+<script src="../js/audio.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/settings.js"></script>
+<script src="../js/grid.js"></script>
+<script src="../js/fx.js"></script>
+<script src="../js/enemies.js"></script>
+<script src="../js/towers.js"></script>
+<script src="../js/resonance.js"></script>
+<script src="../js/waves.js"></script>
+<script src="../js/ui.js"></script>
+<script src="../js/render.js"></script>
+<script src="../js/main.js"></script>
+<script>
+/*
+ * index.html 的真实启动路径（boot → bindInput → 主循环）在 tools/preview.html 里跑不到，
+ * preview 只做「同步 update + 一次 draw」。这里专门覆盖那段盲区。
+ *
+ * 历史战果：曾抓到 `R.raf = requestAnimationFrame`，随后以 `R.raf(cb)` 调用时
+ * this 变成 R 这个普通对象 → TypeError: Illegal invocation，主循环第一帧就挂，
+ * 浏览器版完全无法运行，而无头逻辑自检和截图页都是绿的。
+ *
+ * 注意：不要用 setTimeout 收尾 —— 主循环的递归 rAF 会顶住 --virtual-time-budget
+ * 的虚拟时钟推进，定时器根本不会触发，测试会一直卡在 "running..."。
+ * 所以全部改成同步断言。
+ */
+(function () {
+  var G = window.ECHO_TD;
+  var report = { steps: {}, errors: [], frames: 0 };
+
+  function step(name, fn) {
+    try { var r = fn(); report.steps[name] = (r === undefined ? 'OK' : r); }
+    catch (e) { report.steps[name] = 'FAIL: ' + e.name + ' ' + e.message; report.errors.push(name); }
+  }
+
+  step('1_模块加载', function () {
+    if (!G || !G.Game || !G.Render || !G.Audio) throw new Error('模块缺失');
+    return 'OK (' + Object.keys(G).length + ' 个模块)';
+  });
+
+  step('2_raf可调用', function () {
+    // 这一条就是历史 bug 的直接断言：以对象方法形式调用 rAF 曾经必抛异常
+    var fired = false;
+    G.Runtime.raf(function () { fired = true; });
+    return 'OK';
+  });
+
+  step('3_boot', function () {
+    G.Game.boot();
+    if (!G.Runtime.canvas || !G.Runtime.canvas.width) throw new Error('canvas 未初始化');
+    return 'OK canvas=' + G.Runtime.canvas.width + 'x' + G.Runtime.canvas.height;
+  });
+
+  step('4_输入绑定', function () {
+    // boot 里已绑定；这里验证命中区不越界、不抛错
+    G.Game.onTap(60, 60);                                     // HUD
+    G.Game.onTap(G.LAY.soundBtn.x + 4, G.LAY.soundBtn.y + 4);  // 音效开关
+    G.Game.onTap(G.LAY.soundBtn.x + 4, G.LAY.soundBtn.y + 4);  // 再点一次复原
+    var b = G.UI.menuStart();
+    G.Game.onTap(b.x + b.w / 2, b.y + b.h / 2);                // 开始游戏
+    return 'OK state=' + G.Game.state;
+  });
+
+  step('5_主循环一帧', function () {
+    // 直接跑一帧；rAF 的递归调度在无头虚拟时钟下不一定回得来，
+    // 所以这里同步驱动，断言「update + draw 整条渲染路径不抛错」
+    for (var i = 0; i < 120; i++) {
+      G.Game.update(1 / 60);
+      G.Render.draw(G.Game);
+      report.frames++;
+    }
+    return 'OK ' + report.frames + ' 帧';
+  });
+
+  step('6_建造与技能', function () {
+    G.Game.energy = 9999;
+    G.Game.selCard = 'electro';
+    if (!G.Game.tryBuild(4, 4)) throw new Error('建造失败');
+    G.Game.selCard = 'cryo';
+    G.Game.tryBuild(5, 4);
+    G.Game.selCard = 'pyro';
+    G.Game.tryBuild(6, 4);
+    for (var i = 0; i < 60; i++) { G.Game.update(1 / 60); G.Render.draw(G.Game); }
+
+    var built = G.Game.towers.length;
+    if (built !== 3) throw new Error('应有 3 座塔，实际 ' + built);
+
+    G.Game.castPulse(400, 700);
+
+    // 回声倒带会把战场退回 4 秒前，那时还没建塔 —— 所以塔数必然归零，
+    // 这是正确行为，不是 bug。分开统计以免误读。
+    G.Game.echo = 100;
+    var hadSnaps = G.Game.snaps.length > 0;
+    G.Game.castEcho();
+    for (var j = 0; j < 60; j++) { G.Game.update(1 / 60); G.Render.draw(G.Game); }
+
+    return 'OK 建塔 ' + built + ' → 倒带后 ' + G.Game.towers.length +
+      (hadSnaps ? '（已回溯）' : '（无快照）') + ' / 特效 ' + G.FX.count();
+  });
+
+  step('7_设置页与玩法页', function () {
+    var center = function (r) { return [r.x + r.w / 2, r.y + r.h / 2]; };
+    var tap = function (r) { var c = center(r); G.Game.onTap(c[0], c[1]); };
+
+    // 从菜单进设置
+    G.Game.reset();
+    tap(G.UI.menuSet());
+    if (G.Game.state !== 'set') throw new Error('没进设置页，state=' + G.Game.state);
+
+    // 切到「大」号字：档位要变、布局必须重排（designH / 最小字号都会动）
+    var hBefore = G.Runtime.designH;
+    var lvBefore = G.CFG.FONT_LEVEL;
+    tap(G.UI.setFontBtns()[2]);
+    if (G.CFG.FONT_LEVEL !== 2) throw new Error('字号档位没切换');
+    if (G.Runtime.designH === hBefore && G.CFG.LAY_K === G.CFG.FONT_LEVELS[lvBefore].k) {
+      throw new Error('切档后没有重排布局');
+    }
+    G.Game.update(1 / 60); G.Render.draw(G.Game);   // 大字号下也要画得出来
+
+    // 音量滑杆：点到中间应约等于 50%
+    var tr = G.UI.volTrack(), inner = G.UI.volInner();
+    G.Game.onTap(inner.x + inner.w * 0.5, tr.y + tr.h / 2);
+    if (Math.abs(G.Settings.get('volume') - 0.5) > 0.06) {
+      throw new Error('音量滑杆没生效：' + G.Settings.get('volume'));
+    }
+    tap(G.UI.volMinus());
+    if (Math.abs(G.Settings.get('volume') - 0.4) > 0.06) throw new Error('音量 − 没生效');
+
+    // 震动开关
+    var v0 = G.Settings.get('vibrate');
+    tap(G.UI.setToggle(3));
+    if (G.Settings.get('vibrate') === v0) throw new Error('震动开关没生效');
+
+    // 音效开关（设置页已不挂快捷开关——它和返回按钮会重叠，直接用接口确保是开的）
+    G.Audio.setMuted(false);
+
+    // 返回
+    tap(G.UI.setBack());
+    if (G.Game.state !== 'menu') throw new Error('设置页返回失败，state=' + G.Game.state);
+
+    // 玩法页
+    tap(G.UI.menuHelp());
+    if (G.Game.state !== 'help') throw new Error('没进玩法页');
+    G.Game.update(1 / 60); G.Render.draw(G.Game);
+    tap(G.UI.helpBack());
+    if (G.Game.state !== 'menu') throw new Error('玩法页返回失败');
+
+    // 复原设置，别把测试留下的档位写进用户的存储
+    G.Settings.set('fontLevel', 1);
+    G.Settings.set('volume', 1);
+    G.Settings.set('vibrate', true);
+    return 'OK 档位 小/中/大 可切，音量与震动开关生效，返回正常';
+  });
+
+  report.ok = report.errors.length === 0;
+  document.getElementById('out').textContent = JSON.stringify(report);
+})();
+</script>
+</body>
+</html>

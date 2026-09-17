@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>回声防线 · 静态预览（截图用）</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #04060d; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script src="../js/runtime.js"></script>
+<script src="../js/util.js"></script>
+<script src="../js/audio.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/settings.js"></script>
+<script src="../js/grid.js"></script>
+<script src="../js/fx.js"></script>
+<script src="../js/enemies.js"></script>
+<script src="../js/towers.js"></script>
+<script src="../js/resonance.js"></script>
+<script src="../js/waves.js"></script>
+<script src="../js/ui.js"></script>
+<script src="../js/render.js"></script>
+<script src="../js/main.js"></script>
+<script>
+(function () {
+  var G = ECHO_TD;
+  G.Runtime.init();
+
+  var mode = (location.hash || '#menu').replace('#', '');
+  /* ?font=0|1|2 预设字号档位（小/中/大），配 hash 用：
+     tools/preview.html?font=2#set   → 大字号下的设置页 */
+  var fontLv = (location.search.match(/[?&]font=(\d)/) || [])[1];
+  if (fontLv !== undefined) G.Settings.set('fontLevel', parseInt(fontLv, 10));
+
+  /* wx- 前缀 = 模拟一台微信设备（这里用 iPhone 13 的实测值），
+     把状态栏 / 胶囊 / home 条画成参考框，用来肉眼验收顶部适配。
+     基准机型宽 390px，按当前窗口宽度等比放大，保证与真机同比例。 */
+  var wxSim = (mode.indexOf('wx-') === 0);
+  if (wxSim) mode = mode.slice(3);
+  if (wxSim) {
+    /* 按宽度等比放大（宽高比只能将就，窗口不是 390x844） */
+    var DEV_W = 390, k = G.Runtime.vw / DEV_W;
+    G.Runtime.debugSafeArea({
+      statusBarHeight: 47 * k,
+      screenHeight: G.Runtime.vh,
+      safeArea: { bottom: G.Runtime.vh - 34 * k },
+      capsule: {
+        left: 279 * k, top: 51 * k, right: 366 * k, bottom: 83 * k,
+        width: 87 * k, height: 32 * k
+      }
+    });
+  }
+
+  // 把布局实况挂到 body 上，方便无头截图时 --dump-dom 核对数值
+  window.__dumpLayout = function () {
+    var R = G.Runtime, H = G.LAY.hud;
+    return JSON.stringify({
+      font: G.CFG.FONT_LEVELS[G.CFG.FONT_LEVEL].name + '(' + G.CFG.LAY_K + ')',
+      vw: R.vw, vh: R.vh, scale: +R.scale.toFixed(5),
+      designH: Math.round(R.designH), ox: +R.ox.toFixed(1), oy: +R.oy.toFixed(1),
+      insetTop: R.insetTop, insetBottom: R.insetBottom,
+      capL: R.capsuleLeft, capB: R.capsuleBottom, mode: H.layout,
+      hudRight: H.hudRight, title: H.title, waveBtnY: H.waveBtn.y,
+      hpBarY: G.LAY.hpBar.y, soundY: G.LAY.soundBtn.y,
+      contentTop: Math.round(G.LAY.contentTop), need: Math.round(G.LAY.neededH),
+      boardY: Math.round(G.LAY.boardY), barY: Math.round(G.LAY.barY)
+    });
+  };
+  document.title = 'LAYOUT ' + window.__dumpLayout();
+
+  var PLAN = [    [4, 2, 'electro'], [4, 3, 'electro'], [4, 4, 'electro'], [4, 5, 'electro'],
+    [4, 6, 'electro'], [4, 7, 'electro'], [4, 8, 'electro'],
+    [5, 2, 'cryo'], [5, 3, 'cryo'], [5, 4, 'cryo'], [5, 6, 'cryo'],
+    [7, 3, 'pyro'], [7, 4, 'pyro'], [7, 5, 'pyro'], [7, 6, 'cryo'],
+    [8, 8, 'electro'], [8, 9, 'electro'], [1, 8, 'pyro'], [1, 9, 'pyro']
+  ];
+
+  G.Game.reset();
+  if (mode === 'menu') {
+    G.Game.time = 1.2;
+    G.Render.draw(G.Game);
+    if (wxSim) drawSafeRefs();
+    return;
+  }
+
+  // 整屏版式：设置页 / 玩法页
+  if (mode === 'set' || mode === 'help') {
+    G.Game.startRun();
+    G.Game.openPage(mode);
+    G.Game.time = 1.2;
+    if (mode === 'set') G.Game.toast('字体大小：' + G.CFG.FONT_LEVELS[G.CFG.FONT_LEVEL].name);
+    G.Render.draw(G.Game);
+    if (wxSim) drawSafeRefs();
+    return;
+  }
+
+  G.Game.startRun();
+  G.Game.energy = 99999;
+  for (var i = 0; i < PLAN.length; i++) {
+    var p = PLAN[i];
+    G.Game.selCard = p[2];
+    G.Game.tryBuild(p[0], p[1]);
+  }
+  G.Game.selCard = null;
+  G.Game.energy = 620;
+
+  // 快进到中局
+  var frames = mode === 'over' ? 60 * 900 : 60 * 34;
+  for (var f = 0; f < frames; f++) {
+    G.Game.energy = 620;
+    G.Game.update(1 / 60);
+    if (G.Game.state === 'over' || G.Game.state === 'win') break;
+  }
+  G.Game.energy = 620;
+  G.Game.bannerT = 0;
+  G.Game.toastT = 0;
+
+  if (mode === 'panel' && G.Game.towers.length) G.Game.sel = G.Game.towers[2];
+  if (mode === 'pulse') { G.Game.selCard = 'electro'; G.Game.pulseMode = false; }
+  if (mode === 'full') G.Game.echo = 100;
+  if (mode === 'over') G.Game.gameOver();
+
+  // fx 模式：把新增特效一次性摊开，用于验收渲染
+  if (mode === 'fx') {
+    var cx = G.CFG.BX + G.CFG.BOARD_W / 2;
+    var cy = G.LAY.boardY + G.CFG.BOARD_H / 2;
+
+    // 让几座塔进入开火状态，检查炮管后坐 + 炮口闪光 + 冷却环
+    for (var k = 0; k < G.Game.towers.length; k++) {
+      var tk = G.Game.towers[k];
+      tk.angle = -1.9 + k * 0.55;
+      if (k % 3 === 0) { tk.flash = 0.12; tk.recoil = 0.85; }
+      tk.cool = 0.05 + k * 0.04;
+    }
+    // 几颗飞行中的子弹，检查拖尾
+    G.Game.bullets.push({ x: cx - 40, px: cx - 62, y: cy - 60, py: cy - 60, target: null,
+      dmg: 10, speed: 400, life: 1, elem: 'pyro', r: 4.2, color: '#ff7a4c' });
+    G.Game.bullets.push({ x: cx + 90, px: cx + 58, y: cy + 30, py: cy + 30, target: null,
+      dmg: 10, speed: 400, life: 1, elem: 'pyro', r: 4.2, color: '#ff7a4c' });
+
+    G.FX.shock(cx - 150, cy - 130, 130, '#ffc46b', 0.6, 4);
+    G.FX.bolt(cx + 10, cy - 210, cx + 150, cy - 70, '#b06bff', 0.4);
+    G.FX.ice(cx + 160, cy + 70, 110, '#8de8ff');
+    G.FX.explode(cx - 130, cy + 150, '#ff7bd0', 95, 1.8);
+    G.FX.spark(cx + 40, cy + 120, -0.5, 0.95, 14, '#ffd27a', 280, 0.7);
+    G.FX.flash(cx - 60, cy + 20, 95, '#9fd8ff', 0.5);
+    G.FX.muzzle(cx + 70, cy - 110, 0.7, 32, '#ff5a3c');
+    G.FX.ripple(cx + 190, cy - 170, 95, '#2ee6a8');
+    G.FX.pop(cx - 20, cy - 30, '过载', '#ff7bd0', 20);
+    G.FX.ember(cx + 30, cy + 190, 12, '#ff8a4c');
+    G.FX.text(cx - 200, cy + 60, '汽爆', '#ffc46b', 18);
+    G.FX.arc(cx - 210, cy - 40, cx - 90, cy + 60, '#45d6ff', 0.3, 3);
+
+    // 推进一小段时间，让特效走到能看清的形态
+    for (var u = 0; u < 7; u++) G.FX.update(0.016);
+    G.Game.shake = 0;
+    G.Game.bannerT = 0;
+    G.Game.toastT = 0;
+  }
+
+  G.Render.draw(G.Game);
+
+  /* 参考框：把系统 UI 的位置画出来，确认游戏 UI 全都让开了 */
+  if (wxSim) drawSafeRefs();
+
+  function drawSafeRefs() {
+    var R = G.Runtime, ctx = R.ctx;
+    ctx.save();
+    R.applyTransform(ctx);
+
+    function box(px, color, label) {
+      var p1 = R.toDesign(px.x1, px.y1), p2 = R.toDesign(px.x2, px.y2);
+      var w = p2.x - p1.x, h = p2.y - p1.y;
+      ctx.fillStyle = color.fill;
+      ctx.fillRect(p1.x, p1.y, w, h);
+      ctx.strokeStyle = color.line;
+      ctx.lineWidth = 2;
+      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([7, 6]);
+      ctx.strokeRect(p1.x, p1.y, w, h);
+      if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillStyle = color.line;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(label, p1.x + 8, p1.y + h / 2);
+    }
+
+    var W = R.vw, H = R.vh;
+    // 状态栏整条（时间 / 信号）
+    box({ x1: 0, y1: 0, x2: W, y2: R.statusBarH }, { fill: 'rgba(255,90,110,0.16)', line: 'rgba(255,120,140,0.9)' }, '状态栏');
+    // 右上角胶囊
+    if (R.capsuleRect) {
+      var c = R.capsuleRect;
+      box({ x1: c.left, y1: c.top, x2: c.right, y2: c.bottom }, { fill: 'rgba(255,210,120,0.22)', line: 'rgba(255,210,120,0.95)' }, '胶囊');
+    }
+    // home 指示条
+    if (R.safeArea && R.safeArea.bottom < H - 1) {
+      box({ x1: 0, y1: R.safeArea.bottom, x2: W, y2: H }, { fill: 'rgba(120,200,255,0.14)', line: 'rgba(140,220,255,0.85)' }, '');
+    }
+    // 设计区边界
+    var o1 = R.toDesign(R.ox, R.oy), o2 = R.toDesign(R.ox + 720 * R.scale, R.oy + R.designH * R.scale);
+    ctx.strokeStyle = 'rgba(140,255,200,0.55)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(o1.x, o1.y, o2.x - o1.x, o2.y - o1.y);
+
+    ctx.restore();
+  }
+})();
+</script>
+</body>
+</html>

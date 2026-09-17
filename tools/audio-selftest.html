@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>回声防线 · 音效冒烟测试</title>
+<style>body{font:13px monospace;background:#fff;color:#000;margin:12px}</style>
+</head>
+<body>
+<div id="out">running...</div>
+<script src="../js/runtime.js"></script>
+<script src="../js/util.js"></script>
+<script src="../js/audio.js"></script>
+<script src="../js/config.js"></script>
+<script>
+/*
+ * 音效无法用肉眼验收，所以这里在真实浏览器里把每个音色都实际播一遍：
+ * 一能确认 AudioContext 建得起来，二能抓到任何合成路径上的异常。
+ * 用法：打开后看页面输出；或 --dump-dom | grep -o '{.*}'
+ */
+(function () {
+  var A = ECHO_TD.Audio;
+  var report = { ok: false, ctx: false, errors: [], played: 0, names: [] };
+
+  window.onerror = function (m, s, l) { report.errors.push(m + ' @' + l); };
+
+  var NAMES = [
+    'build', 'upgrade', 'sell', 'shootFire', 'shootFrost', 'shootVolt',
+    'hit', 'kill', 'bossDown', 'leak', 'pulse', 'echo',
+    'reactBurst', 'reactSuper', 'reactOverload', 'waveStart', 'waveClear',
+    'win', 'over', 'deny', 'ui', 'select'
+  ];
+
+  try {
+    report.ctx = A.init();
+    A.unlock();
+    report.ok = A.available();
+
+    // 阶段一：每个音色都真的播一遍，看有没有合成路径上的异常
+    for (var i = 0; i < NAMES.length; i++) {
+      if (A.play(NAMES[i])) { report.played++; report.names.push(NAMES[i]); }
+      else report.errors.push('未播放: ' + NAMES[i]);
+    }
+
+    // 便捷入口也要覆盖
+    try { A.shoot('pyro'); A.shoot('cryo'); A.shoot('electro'); } catch (e) { report.errors.push('shoot: ' + e.message); }
+    try { A.reaction('burst'); A.reaction('super'); A.reaction('overload'); } catch (e) { report.errors.push('reaction: ' + e.message); }
+  } catch (e) {
+    report.errors.push('fatal: ' + e.message + '\n' + e.stack);
+  }
+
+  // 阶段二：必须等节流窗口真的过期再测，否则测的是上一阶段的余温
+  function phaseTwo() {
+    try {
+      // 同一个音连打 6 次：48ms 的节流只该放行 1 次
+      var burst = 0;
+      for (var k = 0; k < 6; k++) if (A.play('hit')) burst++;
+      report.throttleHit = { played: burst, expect: 1 };
+
+      // 开火音共享预算：140ms 内最多 3 声。
+      // 必须混着三种元素打——同一种会被 55ms 的同名节流先挡掉，测不到预算
+      var mix = ['shootFire', 'shootFrost', 'shootVolt'];
+      var shots = 0;
+      for (var s = 0; s < 9; s++) if (A.play(mix[s % 3])) shots++;
+      report.throttleShoot = { played: shots, expect: 3 };
+
+      // 音量链路：主增益 + 压缩后补偿都要真的挂上节点。
+      // 这两个数是「整体响度」的唯一旋钮，被人误改会直接让游戏变得听不见
+      var lv = A.levels();
+      report.levels = lv;
+      report.levelsOk = (lv.masterNominal >= 0.8 && lv.makeupNominal >= 1.2 &&
+        lv.master !== null && Math.abs(lv.master - lv.expectGain) < 0.001 &&
+        lv.makeup !== null && Math.abs(lv.makeup - lv.makeupNominal) < 0.001);
+
+      // 设置页的音量旋钮：必须真的作用到主增益上，且越界要停在边界
+      A.setVolume(0.5);
+      report.volHalf = (Math.abs(A.levels().master - lv.masterNominal * 0.5) < 0.001);
+      A.setVolume(0);
+      report.volZero = (A.levels().master === 0);
+      A.setVolume(-1);                       // 不能跳回满音量
+      report.volClampLow = (A.getVolume() === 0);
+      A.setVolume(9);
+      report.volClampHigh = (A.getVolume() === 1);
+      A.setVolume(0.6);
+      report.volStep = (Math.abs(A.stepVolume(-0.1) - 0.5) < 0.001);
+      A.setVolume(1);
+      report.volRestored = (Math.abs(A.levels().master - lv.masterNominal) < 0.001);
+
+      setTimeout(function () {
+        // 静音后必须彻底不出声，取消静音后恢复
+        A.toggleMute();
+        report.mutedBlocks = (A.play('kill') === false);
+        var lv2 = A.levels();
+        report.muteGainZero = (lv2.master === 0);
+        A.toggleMute();
+        setTimeout(function () {
+          report.unmuteRestores = (A.play('kill') === true);
+          report.unmuteGainBack = (Math.abs(A.levels().master - A.levels().expectGain) < 0.001);
+          document.getElementById('out').textContent = JSON.stringify(report);
+        }, 300);
+      }, 300);
+    } catch (e) {
+      report.errors.push('phase2: ' + e.message);
+      document.getElementById('out').textContent = JSON.stringify(report);
+    }
+  }
+
+  setTimeout(phaseTwo, 300);
+})();
+</script>
+</body>
+</html>

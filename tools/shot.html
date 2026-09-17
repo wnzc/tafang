@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>回声防线 · 界面截图页</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; width: 100%;
+               background: #04060d; overflow: hidden; }
+  canvas { display: block; position: absolute; left: 0; top: 0; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<!-- 无头 Chrome 的 --screenshot 会被主循环的 rAF 顶住不退出，所以改成
+     同步阶段把 canvas 转成 dataURL 写进 DOM，用 --dump-dom 取回来再解码。 -->
+<div id="out" style="display:none"></div>
+
+<!-- 加载顺序与 index.html 完全一致 -->
+<script src="../js/runtime.js"></script>
+<script src="../js/util.js"></script>
+<script src="../js/audio.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/settings.js"></script>
+<script src="../js/grid.js"></script>
+<script src="../js/fx.js"></script>
+<script src="../js/enemies.js"></script>
+<script src="../js/towers.js"></script>
+<script src="../js/resonance.js"></script>
+<script src="../js/waves.js"></script>
+<script src="../js/ui.js"></script>
+<script src="../js/render.js"></script>
+<script src="../js/main.js"></script>
+<script>
+/*
+ * 给无头 Chrome 拍图用：?scene=game|menu|over|win&wx=1
+ *   wx=1 时模拟微信安全区（状态栏 + 右上角胶囊），用来肉眼验收顶部适配。
+ *
+ * 关键点：不要在 rAF 里等 —— 无头下直接同步推进若干帧再画一帧，
+ * 这样 --screenshot 一到就能拿到稳定画面（与 boot-selftest 同一套路）。
+ */
+(function () {
+  var q = new URLSearchParams(location.search);
+  var scene = q.get('scene') || 'game';
+  var G = window.ECHO_TD;
+
+  if (q.get('wx') === '1') {
+    // 与 tools/preview.html 的模拟值一致，方便两边对照
+    G.Runtime.debugSafeArea({
+      statusBarHeight: 47, screenHeight: 844, safeArea: { bottom: 810 },
+      capsule: { left: 279, top: 51, right: 366, bottom: 83, width: 87, height: 32 }
+    });
+  }
+
+  G.Game.boot();
+
+  // 字号档位：走真实设置通道（存储 + 重排），不是直接改 CFG
+  var fontLv = q.get('font');
+  if (fontLv !== null) G.Settings.set('fontLevel', parseInt(fontLv, 10) || 0);
+
+  function place(list) {
+    G.Game.energy = 99999;
+    for (var i = 0; i < list.length; i++) {
+      G.Game.selCard = list[i][2];
+      G.Game.tryBuild(list[i][0], list[i][1]);
+    }
+    G.Game.selCard = null;
+  }
+
+  if (scene === 'game') {
+    G.Game.startRun();
+    // 抱团吃共振链 + 贴边吃反应节点，两种机制都能在图上看到
+    place([[3, 5, 'pyro'], [4, 5, 'pyro'], [5, 5, 'cryo'],
+      [6, 5, 'cryo'], [4, 6, 'electro'], [5, 6, 'electro'], [2, 8, 'pyro']]);
+    // &lv=5：把塔全部升到指定等级，验收「等级越高越华丽」的塔身渲染
+    var lvShot = parseInt(q.get('lv'), 10) || 0;
+    if (lvShot > 1) {
+      for (var li = 0; li < G.Game.towers.length; li++) {
+        G.Game.towers[li].level = Math.min(lvShot, G.CFG.MAX_LEVEL);
+      }
+    }
+    G.Game.startWave(true);
+    for (var i = 0; i < 900; i++) G.Game.update(1 / 60);   // 15 秒，够打起来
+    G.Game.energy = 415;
+    G.Game.bannerT = 0;
+    G.Game.toastT = 0;
+
+  } else if (scene === 'tech') {
+    // 选中一座塔 → 打开塔面板，检查面板与 Toast 的字号
+    G.Game.startRun();
+    place([[4, 5, 'pyro'], [5, 5, 'cryo'], [4, 6, 'electro']]);
+    var t0 = G.Game.towers[0];
+    G.Game.onTap(t0.x, t0.y);       // 点塔身 = 选中（走真实命中逻辑）
+    G.Game.toast('能量不足');
+
+  } else if (scene === 'set' || scene === 'help') {
+    // 整屏版式：设置页 / 玩法页。&font=0|1|2 可指定字号档位一起拍
+    G.Game.startRun();
+    G.Game.openPage(scene);
+    G.Game.toastT = 0;   // startRun 的开局提示会淡走，截图里不需要
+
+  } else if (scene === 'over' || scene === 'win') {
+    G.Game.startRun();
+    G.Game.state = scene;
+    G.Game.score = 18420; G.Game.kills = 476; G.Game.leaked = 3;
+    G.Game.wave = scene === 'win' ? 20 : 14; G.Game.best = 21300;
+  }
+
+  G.Render.draw(G.Game);
+
+  // 同步阶段就把画面定格成 PNG 交给 DOM，避免和 rAF 抢时机
+  document.getElementById('out').textContent = G.Runtime.canvas.toDataURL('image/png');
+})();
+</script>
+</body>
+</html>
