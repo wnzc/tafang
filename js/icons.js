@@ -1,5 +1,5 @@
 /**
- * icons.js —— 七元素图标（原神官方元素图标，矢量路径直接绘制）
+ * icons.js —— 七元素图标（矢量路径数据直接绘制，零位图资源）
  *
  * 图标来源：Genshin Impact 游戏内元素图标 SVG
  *           （社区镜像仓库 Sacr3d/genshin-icons · Elements/SVG，取 <path d> 数据）

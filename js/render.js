@@ -38,8 +38,11 @@
 
   function bar(ctx, x, y, w, h, pct, c1, c2, bg) {
     U.roundRect(ctx, x, y, w, h, h / 2);
-    ctx.fillStyle = bg || 'rgba(255,255,255,0.07)';
+    ctx.fillStyle = bg || CFG.C.barTrack;
     ctx.fill();
+    ctx.strokeStyle = 'rgba(190,220,255,0.18)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
     pct = U.clamp(pct, 0, 1);
     if (pct > 0.001) {
       var g = ctx.createLinearGradient(x, 0, x + w, 0);
@@ -51,13 +54,50 @@
     }
   }
 
-  /* 七元素图标：直接用原神官方元素图标的矢量数据（见 js/icons.js），
+  /* 七元素图标：矢量路径数据直接在 G.Icons 里画（见 js/icons.js），
    * 不再自己描形状——自己画的「像不像」永远是个问题。
    * 着色也交给 G.Icons.draw（缺省取元素色），调用处不用管 fillStyle。
    * 传 color 可覆盖（例如塔身核心要压浅色保证对比度）。 */
   function elemIcon(ctx, elem, cx, cy, r, color) {
     return !!(G.Icons && G.Icons.draw(ctx, elem, cx, cy, r, color));
   }
+
+  /* ------------------------------------------------------------------ */
+  /*  怪物血条与「反应名」标签的几何                                        */
+  /* ------------------------------------------------------------------ */
+  /* 这两块是**渲染与自检共用的一份数**：layout-check 的「怪物形象不顶到血条」
+   * 断言直接调 Render.barRect()，不再两边各写一个 13 和 5
+   * （原来断言里硬编码的 5 与 drawEnemies 里的 5 是两处，改一处就会悄悄失准）。
+   *
+   * 为什么首领要单独一套 gap（13 → 25）：
+   * 首领的体型最大（r=27），血条要显示「1600 / 1600」这种数字就必须更厚。
+   * 加厚只能往下长，而往下就是它的脑袋 —— 所以先把整条槽**往上挪** 12，
+   * 腾出位置再加厚。gap 与 h 是一对，改一个必须看另一个。
+   */
+  var BAR = Render.BAR = {
+    gap: 13,        // 血条顶边离身体半径顶点的距离（普通怪）
+    h: 6,           // 血条厚度（5 → 6：手机上实际只有 3 个物理像素，5 太细）
+    wMin: 26,       // 最小宽度（小体型怪也不至于细成一根线）
+    wRatio: 2.4,    // 宽度 = r × 这个系数（与最小宽度取大）
+    bossGap: 25,    // 首领专用的 gap
+    bossH: 14,      // 首领血条厚度（要装得下血量数字）
+    bossW: 96,
+    bossNumFont: 12
+  };
+
+  /** 某只怪的血条矩形（x 以怪为原点算，y 是槽顶边） */
+  Render.barRect = function (e) {
+    var boss = !!(e.def && e.def.boss);
+    var w = boss ? Math.max(BAR.bossW, e.r * BAR.wRatio) : Math.max(BAR.wMin, e.r * BAR.wRatio);
+    var h = boss ? BAR.bossH : BAR.h;
+    var gap = boss ? BAR.bossGap : BAR.gap;
+    return { x: e.x - w / 2, y: e.y - e.r - gap, w: w, h: h, boss: boss };
+  };
+
+  /* 「刚被什么反应打中」的标签：贴在血条上方的一条小胶囊。
+   * 高度按字号档走（它是文字），而血条不走 —— 血条属于棋盘坐标，
+   * 棋盘格子不随字号变，血条跟着变粗就会压到怪。 */
+  var TAG = Render.TAG = { font: 12, h: 20, padX: 8, gapAboveBar: 4 };
 
   /* ------------------------------------------------------------------ */
 
@@ -67,11 +107,22 @@
     var LAY = G.LAY;
     R.applyTransform(ctx);
 
+    /* 底色：深海军蓝的竖向渐变 + 中上部一片很淡的冷光。
+     * 纯色底在手机上会显得又平又闷（也容易和塔身、怪物糊成一片），
+     * 一层几乎看不见的光晕就能把层次带出来，而且不抢任何元素的对比度。 */
     var g = ctx.createLinearGradient(0, -300, 0, LAY.designH + 300);
-    g.addColorStop(0, '#04060d');
-    g.addColorStop(0.45, '#080e1c');
-    g.addColorStop(1, '#04060d');
+    g.addColorStop(0, CFG.C.bg0);
+    g.addColorStop(0.45, CFG.C.bg1);
+    g.addColorStop(1, CFG.C.bg0);
     ctx.fillStyle = g;
+    ctx.fillRect(-400, -500, 1520, LAY.designH + 1000);
+
+    var gx = 360, gy = LAY.designH * 0.34, gr = LAY.designH * 0.78;
+    var glow = ctx.createRadialGradient(gx, gy, 40, gx, gy, gr);
+    glow.addColorStop(0, 'rgba(122,172,255,0.11)');
+    glow.addColorStop(0.55, 'rgba(122,172,255,0.045)');
+    glow.addColorStop(1, 'rgba(122,172,255,0)');
+    ctx.fillStyle = glow;
     ctx.fillRect(-400, -500, 1520, LAY.designH + 1000);
 
     var sx = 0, sy = 0;
@@ -152,7 +203,7 @@
     var cy = sb.y + sb.h / 2;
 
     U.roundRect(ctx, sb.x, sb.y, sb.w, sb.h, S(14));
-    ctx.fillStyle = on ? 'rgba(95,200,255,0.13)' : 'rgba(255,255,255,0.04)';
+    ctx.fillStyle = on ? 'rgba(95,200,255,0.13)' : CFG.C.offFill;
     ctx.fill();
     ctx.strokeStyle = on ? 'rgba(143,230,255,0.62)' : 'rgba(140,160,190,0.35)';
     ctx.lineWidth = 1.8;
@@ -165,7 +216,7 @@
     ctx.save();
     ctx.translate(sb.x + 30 * u, cy);
     ctx.scale(u, u);
-    ctx.fillStyle = on ? '#8fe6ff' : '#7c8aa4';
+    ctx.fillStyle = on ? '#8fe6ff' : '#93a5c2';
     ctx.beginPath();
     ctx.moveTo(-5, -3);
     ctx.lineTo(-1, -3);
@@ -192,7 +243,7 @@
     ctx.restore();
 
     txt(ctx, on ? '开' : '关', sb.x + 72, cy, 13,
-      on ? '#cdefff' : '#8ba0c6', 'center', 'bold');
+      on ? '#cdefff' : CFG.C.dim, 'center', 'bold');
   }
 
   /* ---------------------------- 棋盘 ---------------------------- */
@@ -202,9 +253,9 @@
     var t = game.time;
 
     U.roundRect(ctx, bx - 9, by - 9, LAY.boardW + 18, LAY.boardH + 18, 20);
-    ctx.fillStyle = '#0a1120';
+    ctx.fillStyle = CFG.C.board;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(120,164,255,0.18)';
+    ctx.strokeStyle = 'rgba(150,190,255,0.18)';
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
@@ -212,7 +263,7 @@
       for (var c = 0; c < COLS; c++) {
         var x = bx + c * CELL, y = by + r * CELL;
         U.roundRect(ctx, x + 2, y + 2, CELL - 4, CELL - 4, 8);
-        ctx.fillStyle = ((r + c) % 2 === 0) ? '#0d1728' : '#0b1424';
+        ctx.fillStyle = ((r + c) % 2 === 0) ? CFG.C.cellA : CFG.C.cellB;
         ctx.fill();
       }
     }
@@ -346,7 +397,7 @@
       ctx.fillStyle = n.def.color;
       ctx.fill();
       ctx.lineWidth = 2;
-      ctx.strokeStyle = 'rgba(4,8,18,0.8)';
+      ctx.strokeStyle = 'rgba(10,18,32,0.8)';
       ctx.stroke();
       ctx.globalAlpha = 1;
 
@@ -407,8 +458,8 @@
 
   function drawTowerBody(ctx, t, el, sup, ck, t0, seed) {
     var x = t.x, y = t.y;
-    var col = sup ? '#6b7893' : el.color;
-    var soft = sup ? '#98a3ba' : el.soft;
+    var col = sup ? '#8494b3' : el.color;
+    var soft = sup ? '#adb8cf' : el.soft;
 
     // 1) 地面余光（只露出一圈边，形成元素色描边感）
     ctx.globalAlpha = sup ? 0.08 : 0.16;
@@ -418,7 +469,7 @@
 
     // 2) 六边形底盘（半径收到 22：塔在格子里少占一点，留出格子边界感）
     U.poly(ctx, x, y, 22, 6, Math.PI / 6);
-    ctx.fillStyle = sup ? '#141a26' : '#111c30';
+    ctx.fillStyle = sup ? '#24344f' : '#20304c';
     ctx.fill();
     ctx.strokeStyle = U.hexToRgba(col, sup ? 0.35 : 0.8);
     ctx.lineWidth = 2.2;
@@ -426,7 +477,7 @@
 
     // 内层暗底，做出厚度
     U.poly(ctx, x, y, 15.5, 6, Math.PI / 6);
-    ctx.fillStyle = 'rgba(4,8,18,0.6)';
+    ctx.fillStyle = 'rgba(10,18,32,0.6)';
     ctx.fill();
 
     // 2.5) 等级华丽度：等级越高装饰越多，一眼看出「这是座老塔」
@@ -521,7 +572,7 @@
     ctx.rotate(t.angle === undefined ? -Math.PI / 2 : t.angle);
     // 管身：从核心一直伸到 27px（底盘半径 25 之外）
     U.roundRect(ctx, 5 - back, -5, 22, 10, 5);
-    ctx.fillStyle = sup ? '#232c3d' : '#25405e';
+    ctx.fillStyle = sup ? '#34435f' : '#35547d';
     ctx.fill();
     ctx.strokeStyle = U.hexToRgba(col, sup ? 0.4 : 1);
     ctx.lineWidth = 1.8;
@@ -533,29 +584,29 @@
     ctx.moveTo(9 - back, 0);
     ctx.lineTo(23 - back, 0);
     ctx.stroke();
-    // 管口：统一小圆头。元素身份交给塔身核心的原神图标去表达，
+    // 管口：统一小圆头。元素身份交给塔身核心的元素图标去表达，
     // 这里再画一套自创符号只会和真图标打架（两套符号看着都不像）。
     ctx.translate(29 - back, 0);
     ctx.beginPath();
     ctx.arc(0, 0, 5.2, 0, Math.PI * 2);
     ctx.fillStyle = U.hexToRgba(soft, sup ? 0.5 : 0.95);
     ctx.fill();
-    ctx.strokeStyle = 'rgba(4,6,13,0.9)';
+    ctx.strokeStyle = 'rgba(10,18,32,0.85)';
     ctx.lineWidth = 1.4;
     ctx.stroke();
     ctx.restore();
 
-    // 6) 中心核心：原神元素图标就是这座塔的身份证。
+    // 6) 中心核心：元素图标就是这座塔的身份证。
     //    底下垫一圈元素色暗盘，图标才在深色底盘上站得住。
     var pul = 0.5 + 0.5 * Math.sin(t0 * 4 + seed);
     ctx.beginPath();
     ctx.arc(x, y, S(9.5) + pul * 0.7, 0, Math.PI * 2);
-    ctx.fillStyle = sup ? 'rgba(92,102,121,0.9)' : U.hexToRgba(col, 0.22);
+    ctx.fillStyle = sup ? 'rgba(120,133,158,0.9)' : U.hexToRgba(col, 0.22);
     ctx.fill();
-    ctx.strokeStyle = U.hexToRgba(sup ? '#98a3ba' : col, 0.5);
+    ctx.strokeStyle = U.hexToRgba(sup ? '#adb8cf' : col, 0.5);
     ctx.lineWidth = 1.2;
     ctx.stroke();
-    elemIcon(ctx, t.elem, x, y, S(7), sup ? '#8b95a8' : soft);
+    elemIcon(ctx, t.elem, x, y, S(7), sup ? '#a0abc0' : soft);
 
     // 7) 等级刻度
     var maxLv = CFG.MAX_LEVEL, pw = 5, pg = 2.5;
@@ -699,18 +750,62 @@
         }
       }
 
-      /* 血条：位置跟怪物形象挂钩 —— 形象按 r/14 缩放，四角会伸到约 r 的 1.15 倍，
-       * 所以血条要退到 -r-13 才不与角/耳朵/牙打架。
-       * layout-check 的「怪物形象不顶血条」断言就是照这个数写的，改一处要改两处。 */
+      /* 血条：几何走 Render.barRect（渲染与自检同源），
+       * 位置跟怪物形象挂钩 —— 形象按 r/14 缩放，四角会伸到约 r 的 1.15 倍，
+       * 所以槽顶要退到 -r-gap 才不与角/耳朵/牙打架。
+       *
+       * 常显（原来只在掉血时画、还只有 5px 无边框）：满血的怪也有一条完整的槽，
+       * 玩家才能一眼看出「这只有多厚」—— 打高血怪时这是最关键的信息。
+       * 槽加深底 + 浅描边 + 顶部高光，免得和提亮后的棋盘底糊在一起。 */
       var hpPct = U.clamp(e.hp / e.maxHp, 0, 1);
-      if (hpPct < 0.999) {
-        var w = Math.max(20, r * 2.2);
-        ctx.fillStyle = 'rgba(0,0,0,0.5)';
-        U.roundRect(ctx, e.x - w / 2, e.y - r - 13, w, 5, 2.5);
+      var br = Render.barRect(e);
+      ctx.fillStyle = 'rgba(9,17,31,0.80)';
+      U.roundRect(ctx, br.x - 1.5, br.y - 1.5, br.w + 3, br.h + 3, (br.h + 3) / 2);
+      ctx.fill();
+      ctx.strokeStyle = br.boss ? 'rgba(255,180,195,0.75)' : 'rgba(190,220,255,0.5)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+      U.roundRect(ctx, br.x, br.y, br.w, br.h, br.h / 2);
+      ctx.fill();
+      if (hpPct > 0.002) {
+        ctx.fillStyle = hpPct > 0.5 ? '#5df2a8' : (hpPct > 0.22 ? '#ffd166' : '#ff5d6c');
+        U.roundRect(ctx, br.x, br.y, Math.max(br.h, br.w * hpPct), br.h, br.h / 2);
         ctx.fill();
-        ctx.fillStyle = hpPct > 0.5 ? '#7ef2c0' : (hpPct > 0.22 ? '#ffd166' : '#ff5d6c');
-        U.roundRect(ctx, e.x - w / 2, e.y - r - 13, w * hpPct, 5, 2.5);
+        if (!br.boss) {
+          // 顶部高光：暗底上的一条亮线，暗处也能看出血条的「形状」
+          ctx.fillStyle = 'rgba(255,255,255,0.42)';
+          U.roundRect(ctx, br.x + br.h * 0.5, br.y + br.h * 0.16,
+            Math.max(2, br.w * hpPct - br.h), Math.max(1.4, br.h * 0.28), br.h * 0.14);
+          ctx.fill();
+        }
+      }
+      // 首领：槽里直接写血量数字（槽加厚到 14 就是为了装它）
+      if (br.boss) {
+        txt(ctx, Math.ceil(Math.max(0, e.hp)) + ' / ' + Math.ceil(e.maxHp),
+          e.x, br.y + br.h / 2, BAR.bossNumFont, '#ffffff', 'center', 'bold');
+      }
+
+      /* 元素反应名：反应打中它时挂上，1 秒多自己淡掉（不飞走、不叠列）。
+       * 画在血条上方 —— 画在身体上会糊住形象，而这块位置本来就是空的。 */
+      if (e.reactT > 0 && e.reactName) {
+        var ta = U.clamp(e.reactT / 0.45, 0, 1);
+        var tw = (ctx.measureText ? (function () {
+          ctx.font = fontOf(TAG.font, 'bold');
+          return ctx.measureText(e.reactName).width;
+        })() : 0) || (e.reactName.length * CFG.FS(TAG.font) * 0.62);
+        var th = S(TAG.h);
+        var tx = e.x - tw / 2, ty = br.y - th - S(TAG.gapAboveBar);
+        ctx.globalAlpha = ta;
+        U.roundRect(ctx, tx - S(TAG.padX), ty, tw + S(TAG.padX) * 2, th, th / 2);
+        ctx.fillStyle = 'rgba(12,20,35,0.88)';
         ctx.fill();
+        ctx.strokeStyle = U.hexToRgba(e.reactColor || '#ffffff', 0.85);
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+        txt(ctx, e.reactName, e.x, ty + th / 2, TAG.font,
+          e.reactColor || '#ffffff', 'center', 'bold');
+        ctx.globalAlpha = 1;
       }
     }
   }
@@ -776,7 +871,7 @@
     txt(ctx, '核心完整度', 40, H.hpLabel, 13, CFG.C.dim);
     var hpPct = U.clamp(game.coreHp / game.coreMax, 0, 1);
     bar(ctx, LAY.hpBar.x, LAY.hpBar.y, LAY.hpBar.w, LAY.hpBar.h, hpPct,
-      hpPct > 0.35 ? '#2ee6a8' : '#ff5d6c', '#8ef7d8', 'rgba(255,255,255,0.07)');
+      hpPct > 0.35 ? '#2ee6a8' : '#ff5d6c', '#8ef7d8', CFG.C.barTrack);
     txt(ctx, Math.ceil(game.coreHp) + ' / ' + game.coreMax, 428, H.hpLabel, 14, CFG.C.text, 'right', 'bold');
 
     // 回声充能
@@ -810,9 +905,9 @@
       var left = game.waveData.events.length - game.spawnIdx + game.enemies.length;
       var r2 = LAY.waveBtn;
       U.roundRect(ctx, r2.x, r2.y, r2.w, r2.h, 16);
-      ctx.fillStyle = 'rgba(255,255,255,0.04)';
+      ctx.fillStyle = CFG.C.offFill;
       ctx.fill();
-      ctx.strokeStyle = 'rgba(120,164,255,0.25)';
+      ctx.strokeStyle = 'rgba(150,190,255,0.25)';
       ctx.lineWidth = 2.2;
       ctx.stroke();
       txt(ctx, '剩余目标 ' + left, r2.x + S(20), r2.y + r2.h / 2, 18, CFG.C.dim, 'left');
@@ -827,9 +922,9 @@
   function drawBottomBar(ctx, game, LAY) {
     var y = LAY.barY;
     U.roundRect(ctx, 12, y + S(3), 696, LAY.barH - S(6), S(22));
-    ctx.fillStyle = 'rgba(13,20,36,0.94)';
+    ctx.fillStyle = 'rgba(26,40,66,0.94)';
     ctx.fill();
-    ctx.strokeStyle = 'rgba(120,164,255,0.16)';
+    ctx.strokeStyle = 'rgba(150,190,255,0.16)';
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
@@ -839,7 +934,7 @@
   }
 
   function drawCard(ctx, r, kind, game) {
-    var active = false, col = '#5f7398', title = '', sub = '', disabled = false;
+    var active = false, col = '#7b8cae', title = '', sub = '', disabled = false;
 
     if (kind.type === 'tower') {
       var d = CFG.TOWERS[kind.key];
@@ -864,9 +959,9 @@
 
     ctx.globalAlpha = disabled ? 0.42 : 1;
     U.roundRect(ctx, r.x, r.y, r.w, r.h, S(16));
-    ctx.fillStyle = active ? U.hexToRgba(col, 0.18) : 'rgba(22,33,58,0.9)';
+    ctx.fillStyle = active ? U.hexToRgba(col, 0.18) : CFG.C.chip;
     ctx.fill();
-    ctx.strokeStyle = active ? col : 'rgba(120,164,255,0.22)';
+    ctx.strokeStyle = active ? col : 'rgba(150,190,255,0.22)';
     ctx.lineWidth = active ? 2.5 : 1.5;
     ctx.stroke();
 
@@ -921,7 +1016,7 @@
 
     ctx.globalAlpha = 0.98;
     U.roundRect(ctx, p.x, p.y, p.w, p.h, S(14));
-    ctx.fillStyle = '#131e34';
+    ctx.fillStyle = CFG.C.panelFill;
     ctx.fill();
     ctx.strokeStyle = U.hexToRgba(el.color, 0.7);
     ctx.lineWidth = 2;
@@ -948,7 +1043,7 @@
 
   function btn(ctx, r, label, enabled, col) {
     U.roundRect(ctx, r.x, r.y, r.w, r.h, S(12));
-    ctx.fillStyle = enabled ? U.hexToRgba(col, 0.16) : 'rgba(255,255,255,0.04)';
+    ctx.fillStyle = enabled ? U.hexToRgba(col, 0.16) : CFG.C.offFill;
     ctx.fill();
     ctx.strokeStyle = enabled ? U.hexToRgba(col, 0.8) : 'rgba(255,255,255,0.12)';
     ctx.lineWidth = 2;
@@ -973,16 +1068,34 @@
     if (game.toastT <= 0) return;
     var a = U.clamp(game.toastT / 0.6, 0, 1);
     ctx.globalAlpha = a;
-    /* 贴着建造栏顶边往上挂：这样它落在棋盘与建造栏之间的空档底部。
-     * 屏幕高度紧张时这个空档会被压扁，靠 config 的 RESERVE_BELOW 兜底。 */
-    var w = S(300), h = S(54), x = 360 - w / 2, y = LAY.barY - h - S(6);
-    U.roundRect(ctx, x, y, w, h, h / 2);
-    ctx.fillStyle = 'rgba(20,28,48,0.95)';
+    /* 提示条：宽度按**实测文字宽度**来，不再固定 300。
+     * 固定宽度的老问题是文案稍微长一点就溢出药丸外（原来那条「点下方卡片选塔…」
+     * 就已经超出去了），而提示文案是随手写的，很难保证不超。
+     * 需要断行时在文案里写 '|' —— 中文自动断行要处理禁则，不值得做，
+     * 而提示本来就是我们自己写的，断在哪一段最清楚。
+     * 高度两行以内（S(18)+S(26)*2 = S(70)），不超过 config 里给提示预留的
+     * RESERVE_BELOW（S(78)），所以两行也不会压到棋盘最后一行核心格。 */
+    ctx.font = fontOf(15);
+    var lines = String(game.toastMsg).split('|');
+    var maxW = 0;
+    for (var li = 0; li < lines.length; li++) {
+      var lw = (ctx.measureText ? ctx.measureText(lines[li]).width : 0) || 0;
+      if (lw > maxW) maxW = lw;
+    }
+    // 桩 ctx（Node 自检）量不出宽度时按字数估一个，避免药丸退化成一条线
+    if (!(maxW > 0)) maxW = lines[0].length * CFG.FS(15) * 0.6;
+    var w = Math.min(664, Math.max(S(200), maxW + S(46)));
+    var lh = S(26), h = S(18) + lh * lines.length;
+    var x = 360 - w / 2, y = LAY.barY - h - S(6);
+    U.roundRect(ctx, x, y, w, h, S(16));
+    ctx.fillStyle = 'rgba(26,38,62,0.95)';
     ctx.fill();
-    ctx.strokeStyle = 'rgba(120,164,255,0.35)';
+    ctx.strokeStyle = 'rgba(150,190,255,0.35)';
     ctx.lineWidth = 1.5;
     ctx.stroke();
-    txt(ctx, game.toastMsg, 360, y + h / 2, 15, CFG.C.text, 'center');
+    for (var k = 0; k < lines.length; k++) {
+      txt(ctx, lines[k], 360, y + h / 2 + (k - (lines.length - 1) / 2) * lh, 15, CFG.C.text, 'center');
+    }
     ctx.globalAlpha = 1;
   }
 
@@ -990,15 +1103,15 @@
 
   /** 整屏版式的底色。必须近乎不透明：底下还画着棋盘与塔（尤其从结算页进来时） */
   function pageBg(ctx, LAY) {
-    ctx.fillStyle = 'rgba(4,6,13,0.985)';
+    ctx.fillStyle = CFG.C.page;
     ctx.fillRect(0, 0, 720, LAY.designH);
   }
 
   function panel(ctx, x, y, w, h, fill) {
     U.roundRect(ctx, x, y, w, h, S(20));
-    ctx.fillStyle = fill || 'rgba(9,14,26,0.96)';
+    ctx.fillStyle = fill || CFG.C.panelFill;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(120,164,255,0.22)';
+    ctx.strokeStyle = 'rgba(150,190,255,0.22)';
     ctx.lineWidth = 2;
     ctx.stroke();
   }
@@ -1033,13 +1146,13 @@
   function toggle(ctx, r, on, onCol) {
     var col = onCol || '#5fc8ff';
     U.roundRect(ctx, r.x, r.y, r.w, r.h, S(14));
-    ctx.fillStyle = on ? U.hexToRgba(col, 0.16) : 'rgba(255,255,255,0.04)';
+    ctx.fillStyle = on ? U.hexToRgba(col, 0.16) : CFG.C.offFill;
     ctx.fill();
     ctx.strokeStyle = on ? U.hexToRgba(col, 0.7) : 'rgba(140,160,190,0.35)';
     ctx.lineWidth = 2;
     ctx.stroke();
     txt(ctx, on ? '开' : '关', r.x + r.w / 2, r.y + r.h / 2, 16,
-      on ? col : '#8ba0c6', 'center', 'bold');
+      on ? col : CFG.C.dim, 'center', 'bold');
   }
 
   function drawMenu(ctx, game, LAY) {
@@ -1064,7 +1177,7 @@
     }
 
     txt(ctx, '最高分 ' + game.best, 360, oy + S(574), 14, CFG.C.dim, 'center');
-    txt(ctx, '微信小游戏 · Canvas 2D 运行，无外部资源', 360, oy + S(612), 12, '#4b5c7d', 'center');
+    txt(ctx, '微信小游戏 · Canvas 2D 运行，无外部资源', 360, oy + S(612), 12, '#7d90b3', 'center');
   }
 
   /* ----------------------------- 设置页 ----------------------------- */
@@ -1080,7 +1193,7 @@
     // 四行：标签 + 说明在左，控件贴右边线
     for (i = 0; i < G.UI.SET_ROWS.length; i++) {
       r = G.UI.setRow(i);
-      panel(ctx, r.x, r.y, r.w, r.h, 'rgba(15,23,41,0.9)');
+      panel(ctx, r.x, r.y, r.w, r.h, CFG.C.panelSoft);
       txt(ctx, SET_LABEL[i], r.x + S(24), r.y + r.h / 2 - S(14), 16, CFG.C.text, 'left', 'bold');
       txt(ctx, SET_HINT[i], r.x + S(24), r.y + r.h / 2 + S(16), 12, CFG.C.dim);
     }
@@ -1090,13 +1203,13 @@
     for (i = 0; i < fb.length; i++) {
       var on = (i === CFG.FONT_LEVEL);
       U.roundRect(ctx, fb[i].x, fb[i].y, fb[i].w, fb[i].h, S(14));
-      ctx.fillStyle = on ? 'rgba(95,200,255,0.20)' : 'rgba(255,255,255,0.04)';
+      ctx.fillStyle = on ? 'rgba(95,200,255,0.20)' : CFG.C.offFill;
       ctx.fill();
       ctx.strokeStyle = on ? 'rgba(143,230,255,0.85)' : 'rgba(140,160,190,0.3)';
       ctx.lineWidth = on ? 2.4 : 1.6;
       ctx.stroke();
       txt(ctx, CFG.FONT_LEVELS[i].name, fb[i].x + fb[i].w / 2, fb[i].y + fb[i].h / 2,
-        18, on ? '#cdefff' : '#8ba0c6', 'center', 'bold');
+        18, on ? '#cdefff' : CFG.C.dim, 'center', 'bold');
     }
 
     // 音效 / 震动开关
@@ -1127,7 +1240,7 @@
 
     /* 字号预览：改档位后立刻能看出效果，不用回菜单再点进来 */
     var pv = G.UI.setPreview();
-    panel(ctx, pv.x, pv.y, pv.w, pv.h, 'rgba(15,23,41,0.9)');
+    panel(ctx, pv.x, pv.y, pv.w, pv.h, CFG.C.panelSoft);
     txt(ctx, G.UI.SET_PREVIEW, pv.x + S(24), pv.y + pv.h / 2, 14, CFG.C.text, 'left');
     txt(ctx, G.UI.SET_PREVIEW_RIGHT + CFG.FONT_LEVELS[CFG.FONT_LEVEL].name,
       pv.x + pv.w - S(24), pv.y + pv.h / 2, 13, '#8fe6ff', 'right', 'bold');
@@ -1155,7 +1268,7 @@
     ghostBtn(ctx, G.UI.helpBack(), '返回', 18, '#8fe6ff');
 
     /* 分隔线：标题与正文之间拉一条，视觉上把「页头」和「条目」分开 */
-    ctx.strokeStyle = 'rgba(120,164,255,0.18)';
+    ctx.strokeStyle = 'rgba(150,190,255,0.18)';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(40, oy + S(104));
@@ -1268,7 +1381,7 @@
       40, oy + S(86), 12, '#5fc8ff', 'left', 'bold');
     ghostBtn(ctx, G.UI.codexBack(), '返回', 18, '#8fe6ff');
 
-    ctx.strokeStyle = 'rgba(120,164,255,0.18)';
+    ctx.strokeStyle = 'rgba(150,190,255,0.18)';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(40, oy + S(104));
@@ -1285,7 +1398,7 @@
       ctx.lineWidth = on ? 2.4 : 1.5;
       ctx.stroke();
       txt(ctx, G.UI.CODEX_TABS[i], tr.x + tr.w / 2, tr.y + tr.h / 2, 18,
-        on ? '#cdefff' : '#8ba0c6', 'center', 'bold');
+        on ? '#cdefff' : CFG.C.dim, 'center', 'bold');
     }
 
     if (game.codexSel) {
@@ -1309,11 +1422,11 @@
     var seen = G.Codex.isSeen(key);
     var d = CFG.ENEMIES[key];
     var cx = rc.x + rc.w / 2, icy = rc.y + S(88);
-    var col = seen ? d.color : '#5a6a8a';
+    var col = seen ? d.color : '#93a7c6';
 
-    glowPanel(ctx, rc, S(18), seen ? 'rgba(22,33,58,0.86)' : 'rgba(13,19,32,0.72)',
+    glowPanel(ctx, rc, S(18), seen ? 'rgba(42,60,94,0.9)' : 'rgba(24,36,58,0.8)',
       seen ? U.hexToRgba(d.color, 0.20) : null,
-      seen ? U.hexToRgba(d.color, 0.5) : 'rgba(120,164,255,0.16)', seen ? 2 : 1.5);
+      seen ? U.hexToRgba(d.color, 0.5) : 'rgba(150,190,255,0.16)', seen ? 2 : 1.5);
 
     if (seen && G.Monsters) {
       G.Monsters.draw(ctx, codexMonster(key, cx, icy + S(12), S(34)), t, 1);
@@ -1322,9 +1435,9 @@
       txt(ctx, '?', cx, icy + S(4), 46, 'rgba(139,160,198,0.30)', 'center', 'bold');
     }
     txt(ctx, seen ? d.name : '? ? ?', cx, rc.y + S(168), 17,
-      seen ? CFG.C.text : '#6b7c9c', 'center', 'bold');
+      seen ? CFG.C.text : '#9db0cf', 'center', 'bold');
     txt(ctx, seen ? G.Codex.enemy(key).role : '未遭遇',
-      cx, rc.y + S(196), 12, seen ? col : '#5a6a8a', 'center');
+      cx, rc.y + S(196), 12, seen ? col : '#93a7c6', 'center');
   }
 
   /* —— 图鉴：炮台格子 —— */
@@ -1332,7 +1445,7 @@
     var info = G.Codex.tower(key);
     if (!info) return;
     var cx = rc.x + rc.w / 2;
-    glowPanel(ctx, rc, S(18), 'rgba(22,33,58,0.86)', U.hexToRgba(info.color, 0.20),
+    glowPanel(ctx, rc, S(18), 'rgba(42,60,94,0.9)', U.hexToRgba(info.color, 0.20),
       U.hexToRgba(info.color, 0.5), 2);
     elemIcon(ctx, info.elem, cx, rc.y + S(84), S(30), info.soft);
     txt(ctx, info.name, cx, rc.y + S(168), 17, CFG.C.text, 'center', 'bold');
@@ -1345,7 +1458,7 @@
   function drawCodexEnemyDetail(ctx, info, game) {
     if (!info) return;
     var hero = G.UI.codexHero();
-    glowPanel(ctx, hero, S(20), 'rgba(15,23,41,0.92)', U.hexToRgba(info.color, 0.22),
+    glowPanel(ctx, hero, S(20), CFG.C.panelSoft, U.hexToRgba(info.color, 0.22),
       U.hexToRgba(info.color, 0.42), 2);
 
     var cx = hero.x + S(84), cy = hero.y + hero.h / 2;
@@ -1360,10 +1473,21 @@
       ['护甲', info.armor], ['赏金', info.reward]]);
 
     var b = G.UI.codexBlock();
-    panel(ctx, b.x, b.y, b.w, b.h, 'rgba(15,23,41,0.9)');
-    txt(ctx, '特性', b.x + S(20), b.y + S(28), 16, CFG.C.text, 'left', 'bold');
+    panel(ctx, b.x, b.y, b.w, b.h, CFG.C.panelSoft);
+    txt(ctx, '要点', b.x + S(20), b.y + S(28), 16, CFG.C.text, 'left', 'bold');
     for (var i = 0; i < info.lines.length; i++) {
       txt(ctx, info.lines[i], b.x + S(20), b.y + S(58) + i * S(28), 12, CFG.C.dim);
+    }
+
+    /* 打法：怪物详情独有的第三块（炮台详情这里放的是元素反应）。
+     * 数字标注（护甲 / 压制半径）现读 CFG，右对齐在同一行 —— 它跟
+     * 平衡数值一起变，写死在文案里迟早对不上。 */
+    var hb = G.UI.codexHowtoBlock();
+    panel(ctx, hb.x, hb.y, hb.w, hb.h, CFG.C.panelSoft);
+    txt(ctx, '打法', hb.x + S(20), hb.y + S(28), 16, info.color, 'left', 'bold');
+    txt(ctx, info.counter, hb.x + hb.w - S(20), hb.y + S(28), 12, CFG.C.dim, 'right');
+    for (var i2 = 0; i2 < info.howto.length && i2 < 2; i2++) {
+      txt(ctx, info.howto[i2], hb.x + S(20), hb.y + S(60) + i2 * S(28), 12, CFG.C.text);
     }
 
     ghostBtn(ctx, G.UI.codexDetailBack(), '返回列表', 18, '#8fe6ff');
@@ -1373,7 +1497,7 @@
   function drawCodexTowerDetail(ctx, info, game) {
     if (!info) return;
     var hero = G.UI.codexHero();
-    glowPanel(ctx, hero, S(20), 'rgba(15,23,41,0.92)', U.hexToRgba(info.color, 0.22),
+    glowPanel(ctx, hero, S(20), CFG.C.panelSoft, U.hexToRgba(info.color, 0.22),
       U.hexToRgba(info.color, 0.42), 2);
 
     elemIcon(ctx, info.elem, hero.x + S(84), hero.y + hero.h / 2, S(40), info.soft);
@@ -1386,15 +1510,15 @@
       ['攻速', info.rate.toFixed(2)], ['耐久', info.hp]]);
 
     var b = G.UI.codexBlock();
-    panel(ctx, b.x, b.y, b.w, b.h, 'rgba(15,23,41,0.9)');
+    panel(ctx, b.x, b.y, b.w, b.h, CFG.C.panelSoft);
     txt(ctx, '攻击方式', b.x + S(20), b.y + S(28), 16, CFG.C.text, 'left', 'bold');
     for (var i = 0; i < info.lines.length; i++) {
       txt(ctx, info.lines[i], b.x + S(20), b.y + S(58) + i * S(28), 12, CFG.C.dim);
     }
 
     var rb = G.UI.codexReactBlock();
-    panel(ctx, rb.x, rb.y, rb.w, rb.h, 'rgba(15,23,41,0.9)');
-    txt(ctx, '元素反应 · 对齐原神', rb.x + S(20), rb.y + S(28), 16, CFG.C.text, 'left', 'bold');
+    panel(ctx, rb.x, rb.y, rb.w, rb.h, CFG.C.panelSoft);
+    txt(ctx, '元素反应', rb.x + S(20), rb.y + S(28), 16, CFG.C.text, 'left', 'bold');
 
     var rs = G.Codex.reactionsOf(info.elem);
     var CO = G.UI.CODEX_REACT_COLS;
@@ -1408,10 +1532,10 @@
       elemIcon(ctx, rs[k].otherElem, row.x + S(CO.icon), ry, S(CO.side),
         on ? oc.soft : 'rgba(140,160,190,0.5)');
       txt(ctx, oc.name + ' ' + rs[k].name, row.x + S(CO.nameX), ry, 15,
-        on ? rs[k].color : '#6b7c9c', 'left', 'bold');
-      txt(ctx, rs[k].effect, row.x + S(CO.effectX), ry, 12, on ? CFG.C.dim : '#5a6a8a');
+        on ? rs[k].color : '#9db0cf', 'left', 'bold');
+      txt(ctx, rs[k].effect, row.x + S(CO.effectX), ry, 12, on ? CFG.C.dim : '#93a7c6');
       txt(ctx, on ? ('× ' + rs[k].otherTowerName) : '未上线',
-        rb.x + rb.w - S(16), ry, 12, on ? U.hexToRgba(rs[k].color, 0.95) : '#5a6a8a',
+        rb.x + rb.w - S(16), ry, 12, on ? U.hexToRgba(rs[k].color, 0.95) : '#93a7c6',
         'right', on ? 'bold' : '');
     }
 
@@ -1424,9 +1548,9 @@
     for (var i = 0; i < cells.length && i < stats.length; i++) {
       var c = cells[i];
       U.roundRect(ctx, c.x + S(4), c.y, c.w - S(8), c.h, S(14));
-      ctx.fillStyle = 'rgba(15,23,41,0.9)';
+      ctx.fillStyle = CFG.C.chip;
       ctx.fill();
-      ctx.strokeStyle = 'rgba(120,164,255,0.16)';
+      ctx.strokeStyle = 'rgba(150,190,255,0.16)';
       ctx.lineWidth = 1.5;
       ctx.stroke();
       txt(ctx, stats[i][0], c.x + c.w / 2, c.y + S(26), 12, CFG.C.dim, 'center');
@@ -1445,11 +1569,11 @@
     var t = game.time;
 
     // 遮罩：刻意留一点透，让玩家看到「战场还在，只是停了」
-    ctx.fillStyle = 'rgba(4,6,13,0.84)';
+    ctx.fillStyle = 'rgba(10,18,32,0.80)';
     ctx.fillRect(0, 0, 720, LAY.designH);
 
     var pulse = 0.5 + 0.5 * Math.sin(t * 2.6);
-    glowPanel(ctx, p, S(24), '#0d1526', U.hexToRgba(info.color, 0.20),
+    glowPanel(ctx, p, S(24), CFG.C.panel2, U.hexToRgba(info.color, 0.20),
       U.hexToRgba(info.color, 0.5 + pulse * 0.3), 2.5);
 
     var L = G.UI.POP_LINES;
@@ -1472,9 +1596,9 @@
     for (var i = 0; i < cells.length && i < stats.length; i++) {
       var c = cells[i];
       U.roundRect(ctx, c.x + S(3), c.y, c.w - S(6), c.h, S(12));
-      ctx.fillStyle = 'rgba(20,30,50,0.9)';
+      ctx.fillStyle = CFG.C.chip;
       ctx.fill();
-      ctx.strokeStyle = 'rgba(120,164,255,0.16)';
+      ctx.strokeStyle = 'rgba(150,190,255,0.16)';
       ctx.lineWidth = 1.5;
       ctx.stroke();
       txt(ctx, stats[i][0], c.x + c.w / 2, c.y + S(26), 12, CFG.C.dim, 'center');
@@ -1482,10 +1606,18 @@
     }
 
     var b = G.UI.popBlock();
-    panel(ctx, b.x, b.y, b.w, b.h, 'rgba(20,30,50,0.9)');
-    txt(ctx, '要点', b.x + S(18), b.y + S(28), 16, CFG.C.text, 'left', 'bold');
-    for (var k = 0; k < info.lines.length; k++) {
-      txt(ctx, info.lines[k], b.x + S(18), b.y + S(58) + k * S(28), 12, CFG.C.dim);
+    panel(ctx, b.x, b.y, b.w, b.h, CFG.C.chip);
+    txt(ctx, '要点 · 打法', b.x + S(18), b.y + S(28), 16, CFG.C.text, 'left', 'bold');
+    var row = 0;
+    for (var k = 0; k < info.lines.length; k++, row++) {
+      txt(ctx, info.lines[k], b.x + S(18), b.y + S(58) + row * S(28), 12, CFG.C.dim);
+    }
+    /* 首次遭遇这一屏是全流程里唯一「必须看懂」的一屏：新怪第一次出现时
+     * 玩家还不知道它要什么对策。所以这里除了要点，还把打法第 1 条单独
+     * 提亮一行放在最后（色用这只怪的主色，跟标题呼应）。 */
+    if (info.howto && info.howto.length) {
+      row++;
+      txt(ctx, '▸ ' + info.howto[0], b.x + S(18), b.y + S(58) + row * S(28), 12, info.color);
     }
 
     mainBtn(ctx, G.UI.popOk(), '继续', 22, t);

@@ -251,7 +251,7 @@ for (let ti = 0; ti < 12; ti++) PHASES.push(ti / 12);
 const LEVELS = load({ w: 390, h: 844 }).CFG.FONT_LEVELS;
 
 /* ---------------------- 0) 元素图标 ----------------------
- * 卡片和塔身核心上的元素标记现在直接画原神官方图标的矢量路径（js/icons.js）。
+ * 卡片和塔身核心上的元素标记现在直接画矢量路径数据（js/icons.js）。
  * 路径数据或解析器任一环节坏掉，表现都是「图标凭空消失」——数字全合法、画面全空白，
  * 所以这里用一个记账用的 ctx 真跑一遍，数它到底有没有画出来。
  */
@@ -309,8 +309,8 @@ const LEVELS = load({ w: 390, h: 844 }).CFG.FONT_LEVELS;
  *   ① 每种怪都有专属形象 —— 少一个就退回兜底圆点，要玩到那一波才发现；
  *   ② 形象真的在动 —— 「动画没生效」光看代码永远是对的，只有比对两个时刻的
  *      绘制指令流才抓得住；
- *   ③ 形象不顶血条 —— 血条画在 e.y - r - 11，形象往上冒就压住它（画面全对、
- *      就血条被挡，最难发现的一类）；
+ *   ③ 形象不顶血条 —— 血条画在怪的上方（几何走 Render.barRect），
+ *      形象往上冒就压住它（画面全对、就血条被挡，最难发现的一类）；
  *   ④ 形象不横向溢出、指令数有上限 —— 溢出会压到邻格，指令数爆炸是性能地雷。
  * 做法：一个会跟着 save/restore 维护 CTM 的记账 ctx，
  * 指令流拿来比对动画，变换后的点拿来算包围盒。
@@ -348,8 +348,12 @@ const LEVELS = load({ w: 390, h: 844 }).CFG.FONT_LEVELS;
       if (p[1] > y1) y1 = p[1];
     }
     const r = G.CFG.ENEMIES[key].r;
-    // 血条占 [-(r+13), -(r+13)+5]（与 render.js 的 drawEnemies 同源），顶边必须落在它下面
-    if (y0 - 80 < -(r + 13) + 5) bleed.push(`${key} 顶 ${(y0 - 80).toFixed(1)} vs 血条底 ${-(r + 13) + 5}`);
+    /* 血条几何直接从渲染层取（Render.barRect）—— 早先这里是硬编码的
+     * 「-(r+13) + 5」，drawEnemies 那边是另一份，改一处就会悄悄失准。
+     * 现在血条常显、首领那条还加厚到 14，都靠这一份数对齐。 */
+    const br = G.Render.barRect({ x: 60, y: 80, r: r, def: G.CFG.ENEMIES[key] });
+    if (y0 < br.y + br.h) bleed.push(`${key} 顶 ${y0.toFixed(1)} vs 血条底 ${(br.y + br.h).toFixed(1)}`);
+    if (br.w > G.CFG.CELL * 2 + 0.5) bleed.push(`${key} 血条宽 ${br.w.toFixed(1)} 超过 2 格`);
     if (Math.max(x1 - 60, 60 - x0) > r * 1.4) spill.push(`${key} 半宽 ${Math.max(x1 - 60, 60 - x0).toFixed(1)} vs ${(r * 1.4).toFixed(1)}`);
     if (x1 - x0 < r * 0.9 || y1 - y0 < r * 0.9) tiny.push(key);
     if (b.n > 400) heavy.push(`${key}(${b.n})`);
@@ -472,6 +476,62 @@ const LEVELS = load({ w: 390, h: 844 }).CFG.FONT_LEVELS;
   console.log('图鉴：怪物 ' + enemies.length + ' 种 / 炮台 ' + towers.length +
     ' 座，反应行合计 ' + totalRows + ' 条');
 }
+
+
+/* ---------------------- 0d) 血条 / 反应名标签 / 击退参数 ----------------------
+ * 三样东西都是「数值改动本身看不出问题、只有跑起来才发现」的类型：
+ *   ① 血条几何 —— 首领那条加厚到 14 之后必须仍然整个落在身体之上，
+ *      否则会盖住自己的脑袋（0b 验的是形象不顶血条，这条验血条不压形象，
+ *      两个方向都要，因为 gap 与 h 是两个可以各自被改的数）；
+ *   ② 反应名标签 —— 名字太长就横着压到邻格，三档字号下长度还不一样；
+ *   ③ 击退免疫窗 —— 免疫窗比反应周期还长的话，反应照样出伤害但推不动，
+ *      表现是「风塔有时灵有时不灵」，最难查的一类。
+ */
+for (let lv = 0; lv < LEVELS.length; lv++) {
+  const G = load({ w: 390, h: 844 }, lv);
+  const tag = '档' + lv + ' ';
+  const BAR = G.Render.BAR, TAG = G.Render.TAG;
+  const S = G.CFG.S, F = G.CFG.FS;
+
+  // ① 血条整体在身体之上（不压自己的头）
+  const barBad = [];
+  for (const key of Object.keys(G.CFG.ENEMIES)) {
+    const d = G.CFG.ENEMIES[key];
+    const br = G.Render.barRect({ x: 0, y: 0, r: d.r, def: d });
+    if (br.y + br.h > -d.r + 0.001) {
+      barBad.push(`${key} 血条底 ${(br.y + br.h).toFixed(1)} vs 身体顶 ${-d.r}`);
+    }
+    if (br.w > G.CFG.CELL * 2 + 0.5) barBad.push(`${key} 血条宽 ${br.w.toFixed(1)}`);
+  }
+  check(barBad.length === 0, tag + '血条不压住自己的身体，也不超过两格宽', barBad.join(' | '));
+
+  // ② 反应名标签：三档字号下都不宽过两格
+  const tagBad = [];
+  for (const key in G.CFG.RES.reactions) {
+    if (!G.CFG.RES.reactions.hasOwnProperty(key)) continue;
+    const nm = G.CFG.RES.reactions[key].name;
+    const w = estW(nm, F(TAG.font)) + S(TAG.padX) * 2;
+    if (w > G.CFG.CELL * 2) tagBad.push(`${nm} ${w.toFixed(0)}`);
+  }
+  check(tagBad.length === 0, tag + '反应名标签不宽过两格', tagBad.join(' | '));
+
+  // ③ 击退免疫窗要短于最短的「带击退」反应周期
+  const KB = G.Enemies.KB;
+  let minPushCd = 1e9, minPushName = '';
+  for (const key in G.CFG.RES.reactions) {
+    if (!G.CFG.RES.reactions.hasOwnProperty(key)) continue;
+    const d = G.CFG.RES.reactions[key];
+    if (!d.push) continue;
+    if (d.cd < minPushCd) { minPushCd = d.cd; minPushName = d.name; }
+  }
+  check(KB.immune < minPushCd,
+    tag + '击退免疫窗短于最短的带击退反应周期（否则那一下推不动）',
+    `${KB.immune} vs ${minPushCd}(${minPushName})`);
+  check(KB.tau > 0.05 && KB.tau < 0.6,
+    tag + '击退衰减时间常数在手感区间内（0.05~0.6s）', String(KB.tau));
+  console.log(tag + '血条：普通 ' + BAR.h + 'px / 首领 ' + BAR.bossH + 'px，击退 τ=' + KB.tau + 's 免疫 ' + KB.immune + 's');
+}
+console.log('');
 
 
 /* ---------------------- 逐个机型 × 逐档字号 ---------------------- */
@@ -617,7 +677,7 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
     const nameNeed = estW('炎爆', F(15)) + S(12);
     line.checks.push(check(cards[0].w >= nameNeed, '卡宽容得下 2 字卡名（S(15) 字号）',
       `卡宽 ${cards[0].w} vs 需要 ${nameNeed.toFixed(0)}`));
-    line.checks.push(check(cards[0].w >= 120, '卡宽够摆原神元素图标（不再挤）', `${cards[0].w}px`));
+    line.checks.push(check(cards[0].w >= 120, '卡宽够摆元素图标（不再挤）', `${cards[0].w}px`));
 
     // 卡内竖向：图标 S(26)（半径 S(15)）→ 卡名 S(58) → 副标题 S(84），都要在 h 里
     const iconBot = S(26) + S(15);

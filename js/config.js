@@ -23,7 +23,7 @@
   CFG.SPAWN_COLS = [0, 9];
 
   /* ---------------- 基础数值 ---------------- */
-  CFG.START_ENERGY = 230;
+  CFG.START_ENERGY = 250;            // 起手能量（够 4 座低价塔，前期不至于只能干看）
   CFG.CORE_HP = 100;
   CFG.PREP_TIME = 12;                // 备战倒计时
   CFG.PREP_BONUS = 3;                // 提前开波，每秒奖励能量
@@ -32,9 +32,9 @@
   CFG.EARLY_WAVE_BONUS = 25;
   CFG.MAX_LEVEL = 5;
 
-  /* ---------------- 元素（七元素，反应规则对齐原神） ----------------
+  /* ---------------- 元素（七元素，本作自成一体的反应规则） ----------------
    * 火pyro / 水hydro / 冰cryo / 雷electro / 风anemo / 岩geo / 草dendro
-   * color 取原神元素色的近似（保夜色背景下可读），soft 是高亮/描边用浅色。
+   * color 是元素主色（保在夜色底上可读），soft 是高亮/描边用浅色。
    * 七个元素全部保留：cryo 当前没有上场塔（凝霜暂下线），但配色、图标、反应条目
    * 全部留档 —— 少一个元素就少 6 条反应，删掉再想加回来代价太大。
    */
@@ -117,10 +117,13 @@
     chainDmg: 0.16,
     chainRate: 0.08,
     chainCap: 7,
-    // 异元素相邻触发反应（key 按字母序拼接），规则对齐原神：
+    // 异元素相邻触发反应（key 按字母序拼接）：
     //   蒸发(火+水) 融化(火+冰) 超载(火+雷) 感电(水+雷) 超导(冰+雷)
     //   冻结(水+冰) 扩散(风+X)  结晶(岩+X)  绽放(草+水) 激化(草+雷) 燃烧(草+火)
     // kind 决定触发表现（见 resonance.js trigger），cd 是反应节点的周期
+    /* 所有反应伤害一律**无视护甲**（见 main.js 的 damageEnemy opts.pierce）：
+     * 这是高护甲怪唯一的解法，也是「第 5 波那只 Boss 怎么打」的答案。
+     * 所以反应的数值不需要跟塔的单发伤害比大小 —— 它的价值在穿透与范围。 */
     reactions: {
       'hydro|pyro': {        // 蒸发：白热汽爆，伤害翻倍感
         name: '蒸发', cd: 2.4, radius: 76, dmg: 46, push: 30,
@@ -146,13 +149,20 @@
         name: '冻结', cd: 3.0, radius: 84, dmg: 8, dur: 1.2,
         color: '#a8ecff', kind: 'freeze'
       },
-      // —— 扩散：风把对方的元素扯出去，小伤害 + 击退 ——
-      'anemo|pyro':  { name: '扩散', cd: 2.0, radius: 104, dmg: 14, push: 46, color: '#8af2e0', kind: 'swirl' },
-      'anemo|hydro': { name: '扩散', cd: 2.0, radius: 104, dmg: 14, push: 46, color: '#8af2e0', kind: 'swirl' },
-      'anemo|cryo':  { name: '扩散', cd: 2.0, radius: 104, dmg: 14, push: 46, color: '#8af2e0', kind: 'swirl' },
-      'anemo|electro': { name: '扩散', cd: 2.0, radius: 104, dmg: 14, push: 46, color: '#8af2e0', kind: 'swirl' },
-      'anemo|dendro': { name: '扩散', cd: 2.0, radius: 104, dmg: 14, push: 46, color: '#8af2e0', kind: 'swirl' },
-      'anemo|geo':   { name: '湍流', cd: 2.2, radius: 96, dmg: 12, push: 56, color: '#a8ecd8', kind: 'swirl' },
+      /* —— 扩散：风把对方的元素扯出去，小伤害 + 击退 ——
+       * push 的单位是「总共后退多少像素」，由 enemies.js 的击退速度场分帧走完
+       * （不是瞬间位移，见 E.push 的注释）。
+       * cd 从 2.0 拉到 3.2：风 + 减速同时压在怪身上时，2 秒一次击退会把怪
+       * 顶在同一个位置上反复横跳（退一点、被减速慢慢挪回来、再退），
+       * 看起来就是一卡一卡。周期拉长后节奏变成「推一段 → 慢慢走回来」。
+       * push 46 → 34 同理：退得太远，减速期间根本走不回来，
+       * 等于把怪永久钉在原地，反而看不出风在起作用。 */
+      'anemo|pyro':  { name: '扩散', cd: 3.2, radius: 104, dmg: 14, push: 34, color: '#8af2e0', kind: 'swirl' },
+      'anemo|hydro': { name: '扩散', cd: 3.2, radius: 104, dmg: 14, push: 34, color: '#8af2e0', kind: 'swirl' },
+      'anemo|cryo':  { name: '扩散', cd: 3.2, radius: 104, dmg: 14, push: 34, color: '#8af2e0', kind: 'swirl' },
+      'anemo|electro': { name: '扩散', cd: 3.2, radius: 104, dmg: 14, push: 34, color: '#8af2e0', kind: 'swirl' },
+      'anemo|dendro': { name: '扩散', cd: 3.2, radius: 104, dmg: 14, push: 34, color: '#8af2e0', kind: 'swirl' },
+      'anemo|geo':   { name: '湍流', cd: 3.4, radius: 96, dmg: 12, push: 40, color: '#a8ecd8', kind: 'swirl' },
       // —— 结晶：给邻塔上护盾，短时间内免疫啃咬 ——
       'geo|hydro':   { name: '结晶', cd: 4.0, radius: 110, dur: 5.0, color: '#ffe0a8', kind: 'crystal' },
       'geo|pyro':    { name: '结晶', cd: 4.0, radius: 110, dur: 5.0, color: '#ffe0a8', kind: 'crystal' },
@@ -198,16 +208,26 @@
     linkFlow: 0.9,          // 共振链上的流光速度
     hitText: true,          // 命中飘伤害数字（仅高伤害）
     hitTextMin: 26,
-    muzzleLen: 24
+    muzzleLen: 24,
+    /* 元素反应名挂在怪身上能亮多久（秒）。反应节点 2~3 秒触发一次，
+     * 标签比这短才好看出「这一下是新打上的」；太长会几只怪挂着同一串名字。 */
+    reactTagT: 1.15
   };
 
   /* ---------------- 敌人 ----------------
    * 这里只管数值与配色；**形象不在这里** —— 每只怪的矢量形象与动画
    * 在 js/monsters.js（按 key 对应），所以加怪要动两个文件。
    * color 是这只怪的「主色」，形象的主色、光晕、血条都取自它。
+   *
+   * armor 是**平砍减伤**（伤害先减 armor，最低压到 1 点），所以它专门
+   * 惩罚低伤高频的塔（水的减速波、风的龙卷）。两条出口：
+   *   · 重击型（磐岩 52）本来就吃得下；
+   *   · **元素反应与持续伤害无视护甲** —— 这是打高甲怪的正解。
+   * armor 不能往上抬：抬到 10 就意味着 17 伤害的火塔只剩 7，
+   * 第 5 波那只 Boss 会从「难打」直接变成「打不动」（实测过一轮）。
    */
   /* 形象「画出来」的实际外扩上限，单位是 r 的倍数（r = 身体半径）。
-   * 数值不是估的：tools/layout-check.js 用记账 ctx 把每只怪在四个时刻
+   * 数值不是估的：tools/layout-check.js 用记账 ctx 把每只怪在十二个时刻
    * 全画一遍算包围盒，取最大值。弹窗的纵向排布要靠它 —— 脑袋/耳朵/犄角
    * 会顶出身体半径之外（最高的游荡体到 1.44r），按 1.0r 排会把定位标签压住。
    * 改动形象若超出这个值，layout-check 会直接报「形象超出登记外扩」。 */
@@ -223,8 +243,8 @@
       reward: 7, dmg: 1, armor: 0, color: '#ffe066'
     },
     bulwark: {
-      key: 'bulwark', name: '装甲体', hp: 240, speed: 38, r: 17,
-      reward: 14, dmg: 3, armor: 6, color: '#9aa7c7'
+      key: 'bulwark', name: '装甲体', hp: 210, speed: 38, r: 17,
+      reward: 14, dmg: 3, armor: 4, color: '#9aa7c7'
     },
     sunder: {
       key: 'sunder', name: '破墙者', hp: 100, speed: 56, r: 15,
@@ -236,23 +256,48 @@
       reward: 14, dmg: 2, armor: 1, color: '#c08bff',
       phaseCycle: 6.0, phaseDur: 2.2
     },
+    /* Boss。三件事必须一起看：
+     *   hp 750 —— 旧值 1600 配上当年的 hpMul，第 5 波那只是 4448 血；
+     *     当时玩家手上只有四五座一级塔、合计不到 60 点秒伤，要打七十多秒，
+     *     而它走完全程只要 25 秒 —— 结论就是「打不动」，不是难。
+     *   armor 4 —— 原来 10：火塔 17 伤害只剩 7，等于把一半的塔废掉。
+     *     降到 4 之后平砍有输出，但仍然只有重击塔划算。
+     *   suppress 140 —— 靠近时把半径内的塔踢出共振网络（连带关掉它的反应）。
+     *     这条是「别把塔紧贴它的路摆」的原因，也是它的血量能降这么多的前提。 */
     boss: {
-      key: 'boss', name: '共鸣吞噬者', hp: 1600, speed: 34, r: 27,
-      reward: 130, dmg: 26, armor: 10, color: '#ff4d6d',
-      boss: true, suppress: 150
+      key: 'boss', name: '共鸣吞噬者', hp: 750, speed: 34, r: 27,
+      reward: 150, dmg: 26, armor: 4, color: '#ff4d6d',
+      boss: true, suppress: 140
     }
   };
 
-  /* ---------------- 配色 ---------------- */
+  /* ---------------- 配色 ----------------
+   * 底色是**深海军蓝**，不是近黑。近黑（原来 #04060d）有三个问题：
+   *   1) 塔身、怪物、血条全都糊在一起，暗色元素完全没有层次；
+   *   2) 手机在户外看就是一团黑，什么都看不见；
+   *   3) 长时间盯着高对比的纯黑底比深蓝更累眼。
+   * 层次靠三档亮度拉开，顺序固定：
+   *   bg0/bg1（整屏底） < panel（面板） < panel2/chip（卡片、数值格）
+   * 再往上才是那几块「软白」（rgba(255,255,255,0.0x)）的描边与分隔。
+   */
   CFG.C = {
-    bg0: '#04060d',
-    bg1: '#0a1020',
-    panel: '#111a2e',
-    panel2: '#16213a',
-    line: 'rgba(120,164,255,0.10)',
-    line2: 'rgba(120,164,255,0.22)',
-    text: '#e6eefc',
-    dim: '#8ba0c6',
+    bg0: '#0f1b2f',
+    bg1: '#182840',
+    board: '#182840',                  // 棋盘底盘
+    cellA: '#20324f',                  // 棋盘格（深浅交替，别太跳）
+    cellB: '#25395a',
+    panel: '#1e2e4b',
+    panel2: '#27395c',
+    page: 'rgba(16,27,47,0.985)',      // 整屏页的底（近乎不透明）
+    panelFill: 'rgba(32,47,76,0.96)',  // 常规面板
+    panelSoft: 'rgba(36,53,84,0.94)',  // 图鉴/弹窗里的次级面板
+    chip: 'rgba(44,63,98,0.94)',       // 卡片与数值格
+    barTrack: 'rgba(8,15,28,0.55)',    // 进度条槽：比底色更深才有「槽」感
+    offFill: 'rgba(255,255,255,0.07)', // 「关 / 买不起」的浅底（别太淡，浅色底上会看不见）
+    line: 'rgba(150,190,255,0.16)',
+    line2: 'rgba(150,190,255,0.30)',
+    text: '#eef4ff',
+    dim: '#a8bbd9',
     good: '#4ade80',
     bad: '#ff5d6c'
   };

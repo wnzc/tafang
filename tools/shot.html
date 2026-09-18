@@ -74,6 +74,10 @@
 
   if (scene === 'game') {
     G.Game.startRun();
+    /* 战斗展示图不需要被「首次遭遇」弹窗打断（本机存过 echo_seen 时它才会弹，
+     * 弹不弹取决于上一次截图写下的记录 —— 那种「有时弹有时不弹」最坑）。
+     * markAllSeen 只作用于本次会话，不动用户的记录。 */
+    G.Codex.markAllSeen();
     // 抱团吃共振链 + 贴边吃反应节点，两种机制都能在图上看到
     place([[3, 5, 'pyro'], [4, 5, 'pyro'], [5, 5, 'hydro'],
       [6, 5, 'hydro'], [4, 6, 'electro'], [5, 6, 'electro'], [2, 8, 'pyro']]);
@@ -108,6 +112,18 @@
       G.Game.enemies.push(em);
     }
     for (var mf = 0; mf < 40; mf++) G.Game.update(1 / 60);
+    /* &react=1：给每只怪挂一枚反应名标签，验收「反应打中时怪身上的名字」。
+     * 真跑一遍反应节点要摆塔 + 等冷却，截图页不值得；直接调 tagReact，
+     * 再推几帧让标签落到淡出的中段（不是刚出现、也不是已经消失）。 */
+    if (q.get('react') === '1') {
+      var tags = [['蒸发', '#ffd08a'], ['感电', '#b7a3ff'], ['超载', '#ff7bd0'],
+        ['超导', '#8de8ff'], ['扩散', '#8af2e0'], ['燃烧', '#ffb347']];
+      var en = G.Game.enemies;
+      for (var ri = 0; ri < en.length && ri < tags.length; ri++) {
+        G.Game.tagReact(en[ri], tags[ri][0], tags[ri][1]);
+      }
+      for (var rf = 0; rf < 8; rf++) G.Game.update(1 / 60);
+    }
     G.Game.bannerT = 0;
     G.Game.toastT = 0;
 

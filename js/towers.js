@@ -119,7 +119,7 @@
       applyAoE(game, x, y, d.aoe, st.dmg, function (e) {
         e.slowAmt = Math.max(e.slowAmt, d.slow);
         e.slowT = Math.max(e.slowT, d.slowT);
-        // 冰元素的波有概率冻结（原神冻结的塔防化简版）
+        // 冰元素的波有概率冻结
         if (d.freezeChance && U.rand(0, 1) < d.freezeChance) {
           e.stunT = Math.max(e.stunT, d.freezeT);
           G.FX.ice(e.x, e.y, e.r + 10, col);
@@ -142,12 +142,13 @@
       }
 
     } else if (d.kind === 'gust') {
-      // 流风：龙卷扫过，范围伤害 + 沿行进反方向推开
+      // 流风：龙卷扫过，范围伤害 + 沿行进反方向推开。
+      // 推的位移走 Enemies.push 的速度场（分帧走完，不是瞬移），
+      // 同一个免疫窗也在这里生效，所以风塔 + 扩散反应不会把怪来回抖。
       G.FX.ring(mx, my, 10, d.aoe, col, 0.4, 3);
       G.FX.burst(target.x, target.y, 8, col, 120);
       applyAoE(game, target.x, target.y, d.aoe, st.dmg, function (e) {
-        e.x -= e.fx * d.push;
-        e.y -= e.fy * d.push;
+        G.Enemies.push(e, e.fx, e.fy, d.push);
         G.FX.spark(e.x, e.y, Math.atan2(e.fy, e.fx), 0.7, 2, col, 120, 0.22);
       });
 

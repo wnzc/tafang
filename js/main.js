@@ -219,9 +219,16 @@
   /* ------------------------------------------------------------------ */
   /*  伤害 / 漏怪                                                          */
   /* ------------------------------------------------------------------ */
-  G.Game.damageEnemy = function (e, amt, color) {
+  /**
+   * 对敌人造成一次伤害。
+   *   opts.pierce = true → **无视护甲**（元素反应、以及将来的真伤技能走这条）。
+   * 护甲是平砍减伤（最低压到 1 点），所以它是「低伤高频的塔打高甲怪很吃亏」
+   * 这条规则的实现；反应的输出必须绕过它，否则高甲怪对谁都硬，
+   * 玩家手上就没有任何解法了（第 5 波那只 Boss 就是这么变成「打不动」的）。
+   */
+  G.Game.damageEnemy = function (e, amt, color, opts) {
     if (!e || !e.alive) return;
-    var dmg = amt - e.armor;
+    var dmg = (opts && opts.pierce) ? amt : amt - e.armor;
     if (dmg < 1) dmg = 1;
     if (e.superT > 0) dmg *= (1 + CFG.RES.reactions['cryo|electro'].extra);
     e.hp -= dmg;
@@ -255,6 +262,21 @@
     } else {
       A('hit');
     }
+  };
+
+  /**
+   * 把「刚被哪个元素反应打中」记到敌人身上 —— render.js 会在它血条上方
+   * 画一枚小标签（名字带元素色描边），然后自己淡掉。
+   *
+   * 为什么记在敌人身上而不是用飘字：飘字会往上飞走，怪一动两者就错开；
+   * 而且同一只怪被连续打时，飘字会叠成一列，看不出「现在挂着什么」。
+   * 只记最新的一条 —— 一只怪同时挂三行反应名反而更难读。
+   */
+  G.Game.tagReact = function (e, name, color) {
+    if (!e || !e.alive || !name) return;
+    e.reactT = CFG.VIS.reactTagT;
+    e.reactName = name;
+    e.reactColor = color || '#ffffff';
   };
 
   G.Game.leak = function (e) {
@@ -431,6 +453,15 @@
     game.state = 'wave';
     game.bannerMsg = '第 ' + game.wave + ' 波 · ' + game.waveData.name;
     game.bannerT = 2.2;
+    /* Boss 波给一条「怎么打」的提示。
+     * 会这么写是因为实测过：Boss 的护甲把低伤塔压到 1 点，玩家的第一反应
+     * 是「再多堆两座同样的塔」—— 方向正好反了。提示必须直接给出解法：
+     * 元素反应是穿甲的，而它的压制圈会把贴上去的塔踢出共振网络。
+     * '|' 是 drawToast 的手动换行（见 render.js）。 */
+    if (game.waveData.isBoss) {
+      game.toastMsg = 'Boss 来袭：元素反应无视护甲|别把塔贴在它的行进路线上';
+      game.toastT = 4.5;
+    }
     G.FX.shock(CFG.BX + CFG.BOARD_W / 2, G.LAY.boardY + 10, 220, '#ff8f9b', 0.6, 4);
     A('waveStart');
     R.buzz('medium');

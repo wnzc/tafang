@@ -64,6 +64,104 @@ try {
   process.exit(1);
 }
 
+/* ---------------------- 击退 / 护甲穿透 / 反应名 / Boss 提示：独立走一遍 ----------------------
+ * 这几件事都是「数值改了、表现就变，但不会抛异常」的类型，只有量出来才看得见：
+ *   ① 击退是**连续位移**：一次 push 之后逐帧推进，单帧位移只占总量的一小块。
+ *      老写法是 `e.x -= fx * push` 一帧跳完 —— 风 + 减速的场合看起来就是「闪现」。
+ *   ② 击退不会把怪推出棋盘、也不会推回出生区（推回去会重新触发出生保护，
+ *      表现为「被吹上去卡住」）。
+ *   ③ 击退有免疫窗：连着的第二下推不动（否则多个风节点会把怪一次吹出半屏）。
+ *   ④ 反应伤害无视护甲，平砍不穿。
+ *   ⑤ 反应打中时，反应名真的挂到了怪身上（渲染那边要画它）。
+ *   ⑥ 首领波开始时，提示语里必须有「无视护甲」——那是这只 Boss 的唯一解法。
+ */
+{
+  const g = G.Game;
+  const res = {};
+
+  G.Game.reset();
+  G.Game.startRun();
+
+  // ① / ② 击退：连续位移 + 不出界
+  const e = G.Enemies.create('bulwark', 1, 0, 1);
+  e.x = G.CFG.BX + G.CFG.CELL * 3 + 32;
+  e.y = G.LAY.boardY + G.CFG.CELL * 5;
+  e.fx = 0; e.fy = 1;                    // 正往下走 → 击退方向是往上
+  g.enemies.push(e);
+
+  const PUSH = 40;
+  const y0 = e.y;
+  const applied = G.Enemies.push(e, e.fx, e.fy, PUSH);
+  const immuneBlocked = !G.Enemies.push(e, e.fx, e.fy, PUSH);   // 免疫窗内的第二下
+  let maxStep = 0, deepest = e.y;
+  for (let i = 0; i < 45 && e.kbT > 0; i++) {
+    const px = e.x, py = e.y;
+    G.Enemies.update(g, 1 / 60);
+    const step = Math.sqrt((e.x - px) * (e.x - px) + (e.y - py) * (e.y - py));
+    if (step > maxStep) maxStep = step;
+    if (e.y < deepest) deepest = e.y;
+  }
+  const back = y0 - deepest;
+  res.push = {
+    applied: applied, immune: immuneBlocked,
+    back: +back.toFixed(1), maxStep: +maxStep.toFixed(1),
+    inBoard: e.y >= G.LAY.boardY - 0.5
+  };
+  // 退了足够远（>70% 的标称距离），但没有任何一帧是一步跳过去的
+  if (!applied || !immuneBlocked || back < PUSH * 0.7 || maxStep > PUSH * 0.25 || !res.push.inBoard) {
+    report.errors.push('击退表现异常: ' + JSON.stringify(res.push));
+  }
+
+  // ③ 免疫窗过后还能再推
+  let reusable = false;
+  for (let i = 0; i < 60 && !reusable; i++) {
+    G.Enemies.update(g, 1 / 60);
+    if (e.kbImmune <= 0) reusable = G.Enemies.push(e, e.fx, e.fy, PUSH);
+  }
+  if (!reusable) report.errors.push('击退免疫窗过后推不动了（风会时灵时不灵）');
+
+  // ④ 护甲穿透
+  const t1 = G.Enemies.create('bulwark', 1, 0, 1);
+  const hpA = t1.hp;
+  G.Game.damageEnemy(t1, 20, '#ffffff');
+  const normal = hpA - t1.hp;
+  const hpB = t1.hp;
+  G.Game.damageEnemy(t1, 20, '#ffffff', { pierce: true });
+  const pierced = hpB - t1.hp;
+  res.armor = { armor: t1.armor, normal: normal, pierced: pierced };
+  if (!(normal === 20 - t1.armor && pierced === 20 && pierced > normal)) {
+    report.errors.push('护甲 / 穿透结算不对: ' + JSON.stringify(res.armor));
+  }
+
+  // ⑤ 反应名挂到怪身上（端到端：两座异元素塔相邻 → 节点触发）
+  const tp = G.Towers.create('pyro', 2, 6);
+  const th = G.Towers.create('hydro', 3, 6);
+  g.towers.push(tp, th);
+  G.Grid.recompute(g.towers);
+  const victim = G.Enemies.create('drifter', 1, 0, 1);
+  victim.x = (tp.x + th.x) / 2;
+  victim.y = tp.y;
+  g.enemies.push(victim);
+  G.Resonance.rebuild(g);
+  for (let i = 0; i < 900 && !victim.reactName; i++) G.Resonance.update(g, 1 / 60);
+  res.react = { name: victim.reactName, color: victim.reactColor, t: +victim.reactT.toFixed(2) };
+  if (victim.reactName !== '蒸发' || !victim.reactColor || victim.reactT <= 0) {
+    report.errors.push('反应名没有挂到敌人身上: ' + JSON.stringify(res.react));
+  }
+
+  // ⑥ 首领波提示
+  G.Game.reset();
+  G.Game.startRun();
+  g.wave = 4;                                 // 下一波是第 5 波（首领波）
+  G.Game.startWave(false);
+  res.bossHint = { boss: !!g.waveData.isBoss, wave: g.wave, msg: g.toastMsg, t: +g.toastT.toFixed(1) };
+  if (!res.bossHint.boss || String(g.toastMsg).indexOf('无视护甲') < 0 || g.toastT < 2) {
+    report.errors.push('首领波的打法提示缺失: ' + JSON.stringify(res.bossHint));
+  }
+
+  report.combat = res;
+}
+
 /* ---------------------- 首次遭遇弹窗：独立走一遍 ----------------------
  * 弹窗会把 state 切到 'pop' 并**暂停战斗**，所以它不能混在主模拟里跑 ——
  * 主模拟跑的是「老玩家」路径（下面的 markAllSeen），弹窗流程单独验：
@@ -271,6 +369,7 @@ console.log('特效帧数    :', G.FX.count(), ' 峰值', fxPeak, '(上限 ' + 1
 console.log('音频可用    :', G.Audio ? (G.Audio.available() ? '是' : '否（Node 环境，静默降级）') : '模块缺失');
 console.log('塔被摧毁    :', report.towerLost || 0, ' 次');
 console.log('图鉴弹窗    :', JSON.stringify(report.pop));
+console.log('击退 / 护甲 :', JSON.stringify(report.combat));
 
 if (report.errors.length) {
   console.log('\n[FAIL] 运行异常:');

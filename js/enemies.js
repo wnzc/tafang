@@ -38,6 +38,10 @@
       slowT: 0, slowAmt: 0, superT: 0, stunT: 0, burnT: 0, burnDps: 0,
       phaseT: 0, phaseCd: d.phaseCycle ? d.phaseCycle * 0.6 : 0,
       hitFlash: 0,
+      /* 击退（风/爆发类反应）的速度场，见 E.push */
+      kbvx: 0, kbvy: 0, kbT: 0, kbImmune: 0,
+      /* 最近一次打在它身上的元素反应名（画成它身上的一枚小标签） */
+      reactT: 0, reactName: '', reactColor: '',
       fx: 0, fy: 1,
       off: U.rand(-15, 15),
       spawnT: 0.35
@@ -54,27 +58,76 @@
     return e;
   };
 
-  E.snapshot = function (e) {
-    return {
-      uid: e.uid, key: e.key, x: e.x, y: e.y,
-      hp: e.hp, maxHp: e.maxHp, reward: e.reward,
-      slowT: e.slowT, slowAmt: e.slowAmt, superT: e.superT,
-      stunT: e.stunT, burnT: e.burnT || 0, burnDps: e.burnDps || 0,
-      phaseT: e.phaseT, phaseCd: e.phaseCd,
-      alive: e.alive, off: e.off, mode: e.mode
-    };
+E.snapshot = function (e) {
+  return {
+    uid: e.uid, key: e.key, x: e.x, y: e.y,
+    hp: e.hp, maxHp: e.maxHp, reward: e.reward,
+    slowT: e.slowT, slowAmt: e.slowAmt, superT: e.superT,
+    stunT: e.stunT, burnT: e.burnT || 0, burnDps: e.burnDps || 0,
+    phaseT: e.phaseT, phaseCd: e.phaseCd,
+    kbvx: e.kbvx || 0, kbvy: e.kbvy || 0, kbT: e.kbT || 0, kbImmune: e.kbImmune || 0,
+    alive: e.alive, off: e.off, mode: e.mode
   };
+};
 
-  E.restore = function (e, s) {
-    e.x = s.x; e.y = s.y;
-    e.hp = s.hp; e.maxHp = s.maxHp; e.reward = s.reward;
-    e.slowT = s.slowT; e.slowAmt = s.slowAmt; e.superT = s.superT;
-    e.stunT = s.stunT; e.burnT = s.burnT || 0; e.burnDps = s.burnDps || 0;
-    e.phaseT = s.phaseT; e.phaseCd = s.phaseCd;
-    e.alive = true; e.off = s.off; e.mode = s.mode;
-    e.hitFlash = 0;
-    return e;
-  };
+E.restore = function (e, s) {
+  e.x = s.x; e.y = s.y;
+  e.hp = s.hp; e.maxHp = s.maxHp; e.reward = s.reward;
+  e.slowT = s.slowT; e.slowAmt = s.slowAmt; e.superT = s.superT;
+  e.stunT = s.stunT; e.burnT = s.burnT || 0; e.burnDps = s.burnDps || 0;
+  e.phaseT = s.phaseT; e.phaseCd = s.phaseCd;
+  /* 击退速度要一起回退：不回退的话，倒带后怪会带着「未来的推力」继续滑，
+   * 而快照里它的位置还是旧的 —— 两者对不上就是凭空位移。 */
+  e.kbvx = s.kbvx || 0; e.kbvy = s.kbvy || 0;
+  e.kbT = s.kbT || 0; e.kbImmune = s.kbImmune || 0;
+  e.alive = true; e.off = s.off; e.mode = s.mode;
+  e.hitFlash = 0;
+  return e;
+};
+
+/* ------------------------------------------------------------------ */
+/*  击退：连续位移，不是瞬移                                              */
+/* ------------------------------------------------------------------ */
+/* 早期版本是「命中瞬间 e.x -= fx * push」—— 位置在某一帧直接跳过去。
+ * 风反应叠上减速时最难看：怪被瞬移推回去，下一帧又沿流场慢慢挪回来，
+ * 两帧之间位置突变，观感就是「一卡一卡」。
+ *
+ * 现在改成速度场：击退给一个初速度，之后每帧按指数衰减，
+ * 总位移 = ∫v dt = v0 · KB_TAU —— 所以「退多少像素」仍然由调用方决定
+ * （反应表里的 push 就是这个数），只是分成约 0.2 秒走完，后退看得见过程。
+ *
+ * 三个配套约束，缺一个都会重新变难看：
+ *   · 击退期间**不前进**（steer 那段被跳过）—— 否则前进与后退同时生效，
+ *     净位移趋近 0，怪就在原地抖，这正是「一卡一卡」的成因。
+ *   · kbImmune 让同一只怪最短 KB_IMMUNE 秒才被推第二次 —— 多个反应节点
+ *     同帧命中时，击退不会叠成一次超长位移。
+ *   · 位移夹在棋盘内 —— 被吹回出生区（y < boardY）会重新走「出生保护」
+ *     分支，看起来就是「被吹上去卡住了」。
+ */
+var KB_TAU = 0.20;          // 击退速度的衰减时间常数（秒）
+var KB_IMMUNE = 0.55;       // 两次击退之间的最小间隔（秒）
+/** 这两个数要让自检能读（断言「免疫窗 < 最短的带击退反应周期」） */
+E.KB = { tau: KB_TAU, immune: KB_IMMUNE };
+
+/**
+ * 施加一次击退。dirX/dirY 传**敌人当前的行进方向**（内部会反过来），
+ * dist 是总共要后退的像素数。被免疫窗挡住或还没进棋盘时返回 false。
+ */
+E.push = function (e, dirX, dirY, dist) {
+  if (!e || !e.alive || !(dist > 0)) return false;
+  if (e.kbImmune > 0) return false;
+  // 还在出生通道里的怪不吃击退：那段走的是「出生保护」分支，
+  // 推力会被丢掉而 kbT 留着，等它进棋盘时凭空滑一下
+  if (e.y < G.LAY.boardY) return false;
+  var d = Math.sqrt(dirX * dirX + dirY * dirY);
+  if (d < 0.0001) return false;
+  var v0 = dist / KB_TAU;
+  e.kbvx = -(dirX / d) * v0;
+  e.kbvy = -(dirY / d) * v0;
+  e.kbT = KB_TAU * 3.5;      // 到 3.5τ 速度只剩 3%，可以收手
+  e.kbImmune = KB_IMMUNE;
+  return true;
+};
 
   function findTowerNear(game, e, range) {
     var list = game.towers, best = null, bd = range * range;
@@ -148,6 +201,8 @@
 
       if (e.spawnT > 0) e.spawnT -= dt;
       if (e.hitFlash > 0) e.hitFlash -= dt;
+      if (e.reactT > 0) e.reactT -= dt;
+      if (e.kbImmune > 0) e.kbImmune -= dt;
       if (e.slowT > 0) { e.slowT -= dt; if (e.slowT <= 0) e.slowAmt = 0; }
       if (e.superT > 0) e.superT -= dt;
       if (e.stunT > 0) e.stunT -= dt;
@@ -174,7 +229,25 @@
         continue;
       }
 
-      if (!frozen) {
+      /* 击退位移：独立于寻路。定身期间照样被吹（这是外力，不是它自己在走），
+       * 但**前进**那一段会被跳过 —— 两者同时生效就变成原地抖。 */
+      if (e.kbT > 0) {
+        e.kbT -= dt;
+        // 时长取小步长：hitStop / 掉帧时 dt 可能很大，一步跨过衰减窗口会变成瞬移
+        var kdt = Math.min(dt, 0.05);
+        e.x += e.kbvx * kdt;
+        e.y += e.kbvy * kdt;
+        var decay = Math.exp(-kdt / KB_TAU);
+        e.kbvx *= decay; e.kbvy *= decay;
+        var kMinX = CFG.BX + 6, kMaxX = CFG.BX + CFG.BOARD_W - 6;
+        var kMinY = G.LAY.boardY + 6;
+        if (e.x < kMinX) { e.x = kMinX; e.kbvx = 0; }
+        if (e.x > kMaxX) { e.x = kMaxX; e.kbvx = 0; }
+        if (e.y < kMinY) { e.y = kMinY; e.kbvy = 0; }
+        if (e.kbT <= 0) { e.kbvx = 0; e.kbvy = 0; }
+      }
+
+      if (!frozen && e.kbT <= 0) {
         var tRange = e.def.towerRange || 74;
         if (e.def.towerDps && !phasing) {
           // 破墙者：以拆塔为第一优先（结晶护盾期间啃不动）

@@ -1,5 +1,5 @@
 /**
- * resonance.js —— 元素反应系统（反应规则对齐原神）
+ * resonance.js —— 元素反应系统
  *
  * 规则：
  *   1) 相邻（上下左右）两座同元素塔 → 形成「共振链」，链越长，全链塔伤害与攻速越高。
@@ -16,6 +16,11 @@
  *
  * 也就是说：摆位本身就是一套需要取舍的解题过程——想拉满伤害要同元素抱团，
  * 想吃到反应又必须让异元素贴边。
+ *
+ * 两条贯穿全表的设定（它们是「高护甲怪怎么打」的答案，改之前先想清楚）：
+ *   · **反应伤害无视护甲**（damageEnemy 的 pierce 选项）。塔的单发伤害要先
+ *     减 armor、最低压到 1 点，所以纯靠塔打高甲怪会很惨；反应是穿透的。
+ *   · **击退是分帧走完的位移**（Enemies.push），不是瞬移。
  */
 ;(function (root) {
   'use strict';
@@ -28,6 +33,12 @@
     nodeIndex: {},
     rebuildTimer: 0
   };
+
+  /** 反应伤害：一律无视护甲，并在怪身上挂一枚反应名标签 */
+  function reactHit(e, dmg, def) {
+    G.Game.damageEnemy(e, dmg, def.color, { pierce: true });
+    if (G.Game.tagReact) G.Game.tagReact(e, def.name, def.color);
+  }
 
   RES.reset = function () {
     RES.links = [];
@@ -149,7 +160,7 @@
     if (G.Audio) G.Audio.reaction(def.kind);
 
     if (def.kind === 'burst') {
-      // 蒸发 / 融化：白热冲击波 + 外扩蒸汽，原神的翻倍反应在塔防里放大为高伤爆发
+      // 蒸发 / 融化：白热冲击波 + 外扩蒸汽，全表最高的单发反应伤害
       G.FX.shock(node.x, node.y, def.radius, def.color, 0.46, 4);
       G.FX.shock(node.x, node.y, def.radius * 0.55, '#ffffff', 0.3, 3);
       G.FX.ember(node.x, node.y, 8, def.color);
@@ -157,10 +168,9 @@
         e = list[i];
         if (!e.alive) continue;
         if (U.dist(e.x, e.y, node.x, node.y) > def.radius + e.r) continue;
-        G.Game.damageEnemy(e, def.dmg, def.color);
-        // 沿行进反方向击退
-        e.x -= e.fx * def.push;
-        e.y -= e.fy * def.push;
+        reactHit(e, def.dmg, def);
+        // 沿行进反方向推回去（分帧走完的位移，见 Enemies.push）
+        G.Enemies.push(e, e.fx, e.fy, def.push);
         G.FX.spark(e.x, e.y, Math.atan2(e.fy, e.fx), 0.9, 3, def.color, 150, 0.26);
       }
       G.FX.burst(node.x, node.y, 12, def.color, 140);
@@ -174,7 +184,7 @@
         e = list[i];
         if (!e.alive) continue;
         if (U.dist(e.x, e.y, node.x, node.y) > def.radius + e.r) continue;
-        G.Game.damageEnemy(e, def.dmg, def.color);
+        reactHit(e, def.dmg, def);
         e.slowAmt = Math.max(e.slowAmt, 0.5);
         e.slowT = Math.max(e.slowT, 1.6);
         e.superT = Math.max(e.superT, def.dur);
@@ -198,7 +208,7 @@
       var n = Math.min(hits.length, def.jumps);
       for (i = 0; i < n; i++) {
         G.FX.bolt(node.x, node.y, hits[i].e.x, hits[i].e.y, def.color, 0.26);
-        G.Game.damageEnemy(hits[i].e, def.dmg, def.color);
+        reactHit(hits[i].e, def.dmg, def);
         G.FX.spark(hits[i].e.x, hits[i].e.y, 0, Math.PI, 4, def.color, 140, 0.24);
       }
       if (n === 0) G.FX.ring(node.x, node.y, def.radius * 0.6, def.color);
@@ -219,7 +229,7 @@
         if (!nx) break;
         used[nx.uid] = 1;
         G.FX.bolt(cured, cyed, nx.x, nx.y, def.color, 0.22);
-        G.Game.damageEnemy(nx, def.dmg, def.color);
+        reactHit(nx, def.dmg, def);
         G.FX.spark(nx.x, nx.y, 0, Math.PI * 2, 3, def.color, 120, 0.22);
         cured = nx.x; cyed = nx.y;
       }
@@ -233,7 +243,7 @@
         e = list[i];
         if (!e.alive) continue;
         if (U.dist(e.x, e.y, node.x, node.y) > def.radius + e.r) continue;
-        G.Game.damageEnemy(e, def.dmg, def.color);
+        reactHit(e, def.dmg, def);
         e.stunT = Math.max(e.stunT, def.dur);
         G.FX.ice(e.x, e.y, e.r + 14, '#d0f4ff');
       }
@@ -246,9 +256,11 @@
         e = list[i];
         if (!e.alive) continue;
         if (U.dist(e.x, e.y, node.x, node.y) > def.radius + e.r) continue;
-        G.Game.damageEnemy(e, def.dmg, def.color);
-        e.x -= e.fx * def.push;
-        e.y -= e.fy * def.push;
+        reactHit(e, def.dmg, def);
+        /* 击退走速度场：分帧后退而不是瞬移。
+         * 被免疫窗挡下（0.55s 内已被推过）时只出伤害不出位移 —— 这是有意的：
+         * 多个风反应节点同时命中同一只怪，位移叠起来会一次退半屏。 */
+        G.Enemies.push(e, e.fx, e.fy, def.push);
         G.FX.spark(e.x, e.y, Math.atan2(e.fy, e.fx), 0.8, 2, def.color, 130, 0.24);
       }
 
@@ -273,7 +285,7 @@
         e = list[i];
         if (!e.alive) continue;
         if (U.dist(e.x, e.y, node.x, node.y) > def.radius + e.r) continue;
-        G.Game.damageEnemy(e, def.dmg, def.color);
+        reactHit(e, def.dmg, def);
         e.burnT = Math.max(e.burnT || 0, 1.6);
         e.burnDps = Math.max(e.burnDps || 0, 10);
       }
@@ -292,7 +304,7 @@
         e = list[i];
         if (!e.alive) continue;
         if (U.dist(e.x, e.y, node.x, node.y) > def.radius * 0.6 + e.r) continue;
-        G.Game.damageEnemy(e, def.dmg, def.color);
+        reactHit(e, def.dmg, def);
       }
 
     } else if (def.kind === 'burn') {
@@ -305,6 +317,8 @@
         if (U.dist(e.x, e.y, node.x, node.y) > def.radius + e.r) continue;
         e.burnT = Math.max(e.burnT || 0, def.dur);
         e.burnDps = Math.max(e.burnDps || 0, def.dps);
+        // 燃烧本体没伤害（掉血在 enemies.js 每帧结算），但反应名照样要挂上去
+        if (G.Game.tagReact) G.Game.tagReact(e, def.name, def.color);
         G.FX.spark(e.x, e.y, 0, Math.PI * 2, 2, def.color, 80, 0.32);
       }
     }
