@@ -11,6 +11,7 @@ require('./js/settings.js');
 require('./js/grid.js');
 require('./js/fx.js');
 require('./js/enemies.js');
+require('./js/monsters.js');
 require('./js/towers.js');
 require('./js/resonance.js');
 require('./js/waves.js');

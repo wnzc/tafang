@@ -648,26 +648,17 @@
 
       ctx.globalAlpha = e.phaseT > 0 ? 0.45 : 1;
 
-      if (e.shape === 'circle') {
-        ctx.beginPath(); ctx.arc(e.x, e.y, r * sc, 0, Math.PI * 2);
-      } else if (e.shape === 'tri') {
-        U.poly(ctx, e.x, e.y, r * sc * 1.15, 3, Math.atan2(e.fy, e.fx) + Math.PI / 2);
-      } else if (e.shape === 'hex') {
-        U.poly(ctx, e.x, e.y, r * sc, 6, Math.PI / 6);
-      } else if (e.shape === 'sq') {
-        U.poly(ctx, e.x, e.y, r * sc * 1.15, 4, Math.PI / 4 + game.time * 2);
-      } else if (e.shape === 'diamond') {
-        U.poly(ctx, e.x, e.y, r * sc * 1.2, 4, Math.PI / 4);
-      } else {
-        U.poly(ctx, e.x, e.y, r * sc, 6, game.time * 1.2);
+      /* 怪物形象：矢量手绘、逐部件动画，全部在 js/monsters.js 里
+       * （朝向镜像、出生缩放、受击白闪、相位重影都在那一层处理）。
+       * 万一某个 key 没有形象，退回一个圆点兜底，保证逻辑自检也不崩。 */
+      if (!G.Monsters || !G.Monsters.draw(ctx, e, game.time, sc)) {
+        ctx.beginPath();
+        ctx.arc(e.x, e.y, r * sc, 0, Math.PI * 2);
+        ctx.fillStyle = col;
+        ctx.fill();
       }
-      ctx.fillStyle = col;
-      ctx.fill();
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = 'rgba(4,8,18,0.8)';
-      ctx.stroke();
 
-      if (e.shape === 'boss') {
+      if (e.def && e.def.boss) {
         ctx.strokeStyle = U.hexToRgba('#ff4d6d', 0.5);
         ctx.lineWidth = 3;
         ctx.beginPath();
@@ -699,15 +690,17 @@
         }
       }
 
-      // 血条
+      /* 血条：位置跟怪物形象挂钩 —— 形象按 r/14 缩放，四角会伸到约 r 的 1.15 倍，
+       * 所以血条要退到 -r-13 才不与角/耳朵/牙打架。
+       * layout-check 的「怪物形象不顶血条」断言就是照这个数写的，改一处要改两处。 */
       var hpPct = U.clamp(e.hp / e.maxHp, 0, 1);
       if (hpPct < 0.999) {
         var w = Math.max(20, r * 2.2);
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
-        U.roundRect(ctx, e.x - w / 2, e.y - r - 11, w, 5, 2.5);
+        U.roundRect(ctx, e.x - w / 2, e.y - r - 13, w, 5, 2.5);
         ctx.fill();
         ctx.fillStyle = hpPct > 0.5 ? '#7ef2c0' : (hpPct > 0.22 ? '#ffd166' : '#ff5d6c');
-        U.roundRect(ctx, e.x - w / 2, e.y - r - 11, w * hpPct, 5, 2.5);
+        U.roundRect(ctx, e.x - w / 2, e.y - r - 13, w * hpPct, 5, 2.5);
         ctx.fill();
       }
     }

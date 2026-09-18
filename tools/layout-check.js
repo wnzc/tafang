@@ -33,7 +33,7 @@ const canvasStub = {
   addEventListener: () => { }
 };
 
-const FILES = ['runtime', 'util', 'icons', 'audio', 'config', 'settings', 'grid', 'fx', 'enemies',
+const FILES = ['runtime', 'util', 'icons', 'audio', 'config', 'settings', 'grid', 'fx', 'enemies', 'monsters',
   'towers', 'resonance', 'waves', 'ui', 'render', 'main'];
 
 /** 在全新的模块环境里跑一次 init()，可选指定字号档 */
@@ -123,9 +123,11 @@ const PROFILES = [
 /* ---------------------- 断言工具 ---------------------- */
 const EPS = 0.6;              // 允许 0.6px 的取整误差
 let failures = 0;
+let checksTotal = 0;          // 含「机型 × 档位」之外的全局断言（图标、怪物形象）
 const rows = [];
 
 function check(cond, label, detail) {
+  checksTotal++;
   if (!cond) { failures++; return { label, detail, ok: false }; }
   return { label, ok: true };
 }
@@ -197,6 +199,110 @@ const LEVELS = load({ w: 390, h: 844 }).CFG.FONT_LEVELS;
   check(!!G.CFG.S && G.CFG.S(96) === Math.round(96 * G.CFG.LAY_K), '布局倍率入口一致', '');
   console.log('');
   console.log('元素图标分段数：' + segs.join('  '));
+}
+
+
+/* ---------------------- 0b) 怪物形象 ----------------------
+ * 怪物从「一个多边形」换成矢量手绘 + 逐部件动画（js/monsters.js）。
+ * 有四件事只有机器判得住：
+ *   ① 每种怪都有专属形象 —— 少一个就退回兜底圆点，要玩到那一波才发现；
+ *   ② 形象真的在动 —— 「动画没生效」光看代码永远是对的，只有比对两个时刻的
+ *      绘制指令流才抓得住；
+ *   ③ 形象不顶血条 —— 血条画在 e.y - r - 11，形象往上冒就压住它（画面全对、
+ *      就血条被挡，最难发现的一类）；
+ *   ④ 形象不横向溢出、指令数有上限 —— 溢出会压到邻格，指令数爆炸是性能地雷。
+ * 做法：一个会跟着 save/restore 维护 CTM 的记账 ctx，
+ * 指令流拿来比对动画，变换后的点拿来算包围盒。
+ */
+{
+  const G = load({ w: 390, h: 844 });
+
+  function makeRec() {
+    const st = [];                                  // save / restore 栈
+    let m = [1, 0, 0, 1, 0, 0];                     // a,b,c,d,e,f：x' = ax+cy+e
+    const ops = [], pts = [];
+    const mul = n => {
+      const [a, b, c, d, e, f] = m;
+      m = [a * n[0] + c * n[1], b * n[0] + d * n[1], a * n[2] + c * n[3],
+        b * n[2] + d * n[3], a * n[4] + c * n[5] + e, b * n[4] + d * n[5] + f];
+    };
+    const add = (x, y) => pts.push([m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]);
+    const num = v => (typeof v === 'number' ? Math.round(v * 1000) / 1000 : v);
+
+    const fire = (k, a) => {
+      ops.push(k + ':' + Array.prototype.map.call(a, num).join(','));
+      if (k === 'translate') mul([1, 0, 0, 1, a[0], a[1]]);
+      else if (k === 'scale') mul([a[0], 0, 0, a[1], 0, 0]);
+      else if (k === 'rotate') { const c = Math.cos(a[0]), s = Math.sin(a[0]); mul([c, s, -s, c, 0, 0]); }
+      else if (k === 'save') st.push(m.slice());
+      else if (k === 'restore') { if (st.length) m = st.pop(); }
+      else if (k === 'moveTo' || k === 'lineTo') add(a[0], a[1]);
+      else if (k === 'quadraticCurveTo') { add(a[0], a[1]); add(a[2], a[3]); }
+      else if (k === 'bezierCurveTo') { add(a[0], a[1]); add(a[2], a[3]); add(a[4], a[5]); }
+      else if (k === 'arc') {
+        add(a[0] + Math.cos(a[3]) * a[2], a[1] + Math.sin(a[3]) * a[2]);
+        add(a[0] + Math.cos(a[4]) * a[2], a[1] + Math.sin(a[4]) * a[2]);
+        add(a[0], a[1]);
+      } else if (k === 'arcTo') { add(a[0], a[1]); add(a[2], a[3]); }
+    };
+
+    const ctx = new Proxy({}, {
+      get(t, k) {
+        if (k === 'measureText') return () => ({ width: 10 });
+        if (k === 'createLinearGradient' || k === 'createRadialGradient') return () => ({ addColorStop() { } });
+        if (k in t) return t[k];
+        return function () { fire(String(k), arguments); };
+      },
+      set(t, k, v) { t[k] = v; return true; }
+    });
+    return { ctx, ops, pts };
+  }
+
+  function sample(key, t) {
+    const rec = makeRec();
+    const def = G.CFG.ENEMIES[key];
+    G.Monsters.draw(rec.ctx, {
+      uid: 5, key: key, def: def, color: def.color, r: def.r, x: 60, y: 80,
+      fx: 0, fy: 1, hitFlash: 0, off: 4.2, phaseT: 0, mode: 'path'
+    }, t, 1);
+    return { sig: rec.ops.join('|'), pts: rec.pts, n: rec.ops.length };
+  }
+
+  const keys = Object.keys(G.CFG.ENEMIES);
+  const noArt = keys.filter(k => !G.Monsters.has(k));
+  check(noArt.length === 0, '每种怪都有专属形象', noArt.join(', ') || `${keys.length} 种`);
+
+  const still = [], unstable = [], bleed = [], spill = [], tiny = [], heavy = [];
+  const report = [];
+  for (const key of keys) {
+    const a = sample(key, 0.31), b = sample(key, 0.73);
+    const c = sample(key, 0.5), d = sample(key, 0.5);
+    if (a.sig === b.sig) still.push(key);              // 两个时刻画得一模一样 = 没动画
+    if (c.sig !== d.sig) unstable.push(key);           // 同一时刻两次不一样 = 不可复现
+
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+    for (const p of b.pts) {
+      if (p[0] < x0) x0 = p[0];
+      if (p[0] > x1) x1 = p[0];
+      if (p[1] < y0) y0 = p[1];
+      if (p[1] > y1) y1 = p[1];
+    }
+    const r = G.CFG.ENEMIES[key].r;
+    // 血条占 [-(r+13), -(r+13)+5]（与 render.js 的 drawEnemies 同源），顶边必须落在它下面
+    if (y0 - 80 < -(r + 13) + 5) bleed.push(`${key} 顶 ${(y0 - 80).toFixed(1)} vs 血条底 ${-(r + 13) + 5}`);
+    if (Math.max(x1 - 60, 60 - x0) > r * 1.4) spill.push(`${key} 半宽 ${Math.max(x1 - 60, 60 - x0).toFixed(1)} vs ${(r * 1.4).toFixed(1)}`);
+    if (x1 - x0 < r * 0.9 || y1 - y0 < r * 0.9) tiny.push(key);
+    if (b.n > 400) heavy.push(`${key}(${b.n})`);
+    report.push(`${key}:${b.n}`);
+  }
+  check(still.length === 0, '每种怪的动画都真的在变（两个时刻指令流不同）', still.join(', '));
+  check(unstable.length === 0, '同一时刻画两次完全一致（动画不引入随机）', unstable.join(', '));
+  check(bleed.length === 0, '怪物形象不顶到血条', bleed.join(' | '));
+  check(spill.length === 0, '怪物形象不横向溢出（不压邻格）', spill.join(' | '));
+  check(tiny.length === 0, '怪物形象没有退化成小点', tiny.join(', '));
+  check(heavy.length === 0, '单只怪的绘制指令数在上限内（≤400）', heavy.join(', '));
+  console.log('');
+  console.log('怪物形象指令数：' + report.join('  '));
 }
 
 
@@ -531,6 +637,7 @@ if (failures) {
   console.log(`>>> 共 ${failures} 项未通过`);
   process.exit(1);
 } else {
-  console.log(`>>> 全部通过：${rows.length} 组（${PROFILES.length} 机型 × ${LEVELS.length} 档字号），` +
-    `${rows.reduce((a, r) => a + r.checks.length, 0)} 项断言`);
+  console.log(`>>> 全部通过：${rows.length} 组（${PROFILES.length} 机型 × ${LEVELS.length} 档字号）` +
+    ` + ${checksTotal - rows.reduce((a, r) => a + r.checks.length, 0)} 项结构断言，` +
+    `共 ${checksTotal} 项断言`);
 }

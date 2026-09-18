@@ -38,7 +38,7 @@ const canvasStub = {
 };
 
 const JS_DIR = path.join(__dirname, '..', 'js');
-const FILES = ['runtime', 'util', 'icons', 'audio', 'config', 'settings', 'grid', 'fx', 'enemies',
+const FILES = ['runtime', 'util', 'icons', 'audio', 'config', 'settings', 'grid', 'fx', 'enemies', 'monsters',
   'towers', 'resonance', 'waves', 'ui', 'render', 'main'];
 
 /* ---------------------- 断言工具 ---------------------- */

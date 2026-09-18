@@ -21,7 +21,6 @@
       uid: uidSeq++,
       key: key,
       def: d,
-      shape: d.shape,
       color: d.color,
       r: d.r,
       col: spawnCol,

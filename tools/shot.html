@@ -26,6 +26,7 @@
 <script src="../js/grid.js"></script>
 <script src="../js/fx.js"></script>
 <script src="../js/enemies.js"></script>
+<script src="../js/monsters.js"></script>
 <script src="../js/towers.js"></script>
 <script src="../js/resonance.js"></script>
 <script src="../js/waves.js"></script>
@@ -83,6 +84,27 @@
     G.Game.startWave(true);
     for (var i = 0; i < 900; i++) G.Game.update(1 / 60);   // 15 秒，够打起来
     G.Game.energy = 415;
+    G.Game.bannerT = 0;
+    G.Game.toastT = 0;
+
+  } else if (scene === 'monsters') {
+    /* 怪物验收：棋盘上摆齐 6 种怪，各自推几步让走路/浮动动画进入稳态。
+     * 只看 tools/monster-sheet.html 不够 —— 实际大小、光晕、血条、
+     * 与塔和格子的叠压关系，只有放进真棋盘才看得出来。 */
+    G.Game.startRun();
+    place([[0, 5, 'pyro'], [9, 5, 'electro']]);   // 塔只摆在两侧，别压住要看的怪
+    var kinds = ['drifter', 'sprinter', 'bulwark', 'sunder', 'phaser', 'boss'];
+    for (var mi = 0; mi < kinds.length; mi++) {
+      var em = G.Enemies.create(kinds[mi], 1, 2, 1);
+      em.x = G.Grid.cellCX(1 + (mi % 3) * 3.2);
+      em.y = G.LAY.boardY + G.CFG.CELL * (1.6 + Math.floor(mi / 3) * 2.4);
+      em.spawnT = 0;
+      em.hp = em.maxHp * (0.35 + 0.12 * mi);   // 血条能看出不同长度
+      em.fx = mi === 1 ? -1 : 0.2;             // 疾行体朝左走，顺便验收镜像朝向
+      em.fy = 0.4;
+      G.Game.enemies.push(em);
+    }
+    for (var mf = 0; mf < 40; mf++) G.Game.update(1 / 60);
     G.Game.bannerT = 0;
     G.Game.toastT = 0;
 

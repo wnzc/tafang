@@ -40,7 +40,7 @@ global.addEventListener = () => { };
 global.localStorage = { getItem: () => null, setItem: () => { } };
 
 /* ---------------------- 载入模块 ---------------------- */
-const files = ['runtime', 'util', 'icons', 'audio', 'config', 'grid', 'fx', 'enemies',
+const files = ['runtime', 'util', 'icons', 'audio', 'config', 'grid', 'fx', 'enemies', 'monsters',
   'towers', 'resonance', 'waves', 'ui', 'render', 'main'];
 for (const f of files) require(path.join(__dirname, '..', 'js', f + '.js'));
 

@@ -65,6 +65,47 @@
     return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
   };
 
+  /* 颜色工具：给怪物形象调「明暗/高光/受击白闪」用。
+   * 只吃 #rrggbb / #rgb；别的格式（rgba()、颜色名）原样返回，调用处不用判断。 */
+  function parseHex(hex) {
+    if (typeof hex !== 'string' || hex.charAt(0) !== '#') return null;
+    var h = hex.slice(1);
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+    if (h.length !== 6) return null;
+    var n = parseInt(h, 16);
+    if (isNaN(n)) return null;
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  }
+  function toHex(r, g, b) {
+    function p2(v) {
+      v = v < 0 ? 0 : (v > 255 ? 255 : Math.round(v));
+      var s = v.toString(16);
+      return s.length < 2 ? '0' + s : s;
+    }
+    return '#' + p2(r) + p2(g) + p2(b);
+  }
+
+  /** 往白里混：t=0 原色、t=1 纯白（受击白闪） */
+  U.tint = function (hex, t) {
+    if (!(t > 0)) return hex;
+    var c = parseHex(hex);
+    if (!c) return hex;
+    if (t > 1) t = 1;
+    return toHex(c[0] + (255 - c[0]) * t, c[1] + (255 - c[1]) * t, c[2] + (255 - c[2]) * t);
+  };
+
+  /** 变亮/变暗：amt<0 按比例压暗、amt>0 往白里提（做描边色与高光色） */
+  U.shade = function (hex, amt) {
+    var c = parseHex(hex);
+    if (!c) return hex;
+    if (amt < 0) {
+      var k = 1 + amt;
+      if (k < 0) k = 0;
+      return toHex(c[0] * k, c[1] * k, c[2] * k);
+    }
+    return U.tint(hex, amt);
+  };
+
   U.fmt = function (n) { return n >= 10000 ? (n / 1000).toFixed(1) + 'k' : String(Math.round(n)); };
 
 })(typeof GameGlobal !== 'undefined' ? GameGlobal

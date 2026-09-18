@@ -201,34 +201,38 @@
     muzzleLen: 24
   };
 
-  /* ---------------- 敌人 ---------------- */
+  /* ---------------- 敌人 ----------------
+   * 这里只管数值与配色；**形象不在这里** —— 每只怪的矢量形象与动画
+   * 在 js/monsters.js（按 key 对应），所以加怪要动两个文件。
+   * color 是这只怪的「主色」，形象的主色、光晕、血条都取自它。
+   */
   CFG.ENEMIES = {
     drifter: {
       key: 'drifter', name: '游荡体', hp: 62, speed: 58, r: 13,
-      reward: 6, dmg: 1, armor: 0, color: '#6ee7ff', shape: 'circle'
+      reward: 6, dmg: 1, armor: 0, color: '#6ee7ff'
     },
     sprinter: {
       key: 'sprinter', name: '疾行体', hp: 40, speed: 120, r: 11,
-      reward: 7, dmg: 1, armor: 0, color: '#ffe066', shape: 'tri'
+      reward: 7, dmg: 1, armor: 0, color: '#ffe066'
     },
     bulwark: {
       key: 'bulwark', name: '装甲体', hp: 240, speed: 38, r: 17,
-      reward: 14, dmg: 3, armor: 6, color: '#9aa7c7', shape: 'hex'
+      reward: 14, dmg: 3, armor: 6, color: '#9aa7c7'
     },
     sunder: {
       key: 'sunder', name: '破墙者', hp: 100, speed: 56, r: 15,
-      reward: 13, dmg: 2, armor: 1, color: '#ff8a4c', shape: 'sq',
+      reward: 13, dmg: 2, armor: 1, color: '#ff8a4c',
       towerDps: 13, towerRange: 74
     },
     phaser: {
       key: 'phaser', name: '相位体', hp: 105, speed: 70, r: 13,
-      reward: 14, dmg: 2, armor: 1, color: '#c08bff', shape: 'diamond',
+      reward: 14, dmg: 2, armor: 1, color: '#c08bff',
       phaseCycle: 6.0, phaseDur: 2.2
     },
     boss: {
       key: 'boss', name: '共鸣吞噬者', hp: 1600, speed: 34, r: 27,
-      reward: 130, dmg: 26, armor: 10, color: '#ff4d6d', shape: 'boss',
-      suppress: 150
+      reward: 130, dmg: 26, armor: 10, color: '#ff4d6d',
+      boss: true, suppress: 150
     }
   };
 

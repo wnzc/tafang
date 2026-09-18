@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>回声防线 · 怪物图鉴（自检用）</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #04060d; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="sheet"></canvas>
+<script src="../js/runtime.js"></script>
+<script src="../js/util.js"></script>
+<script src="../js/config.js"></script>
+<script src="../js/monsters.js"></script>
+<script>
+/* 怪物图鉴 —— 一次把 6 只怪画满一屏，用来肉眼复核形象与动画。
+ *
+ * 为什么要这个页：怪物是矢量手绘的，「数值全对、画面是坨屎」只有真画出来才看得见。
+ * 每行 4 格 = 同一只怪在 4 个动画相位 / 状态下的样子 —— 四格长得一样就说明动画没生效。
+ *
+ * 用法（无头 Chrome 截图）：
+ *   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+ *     --headless=new --disable-gpu --no-sandbox --window-size=920,1360 \
+ *     --screenshot=tools/shots/monsters.png "file://$PWD/tools/monster-sheet.html"
+ */
+(function () {
+  var G = window.ECHO_TD;
+  var C = G.CFG, M = G.Monsters;
+
+  var W = 900, H = 1330;
+  var cv = document.getElementById('sheet');
+  cv.width = W; cv.height = H;
+  var ctx = cv.getContext('2d');
+
+  // 背景
+  var bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#070c18');
+  bg.addColorStop(1, '#04060d');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  function label(s, x, y, size, color, align, weight) {
+    ctx.font = (weight || '') + ' ' + size + 'px sans-serif';
+    ctx.fillStyle = color;
+    ctx.textAlign = align || 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(s, x, y);
+  }
+
+  label('怪物图鉴 · 6 只', 24, 40, 30, '#e6eefc', 'left', 'bold');
+  label('每行 4 格 = 同一只怪的 4 个动画相位 / 状态（四格一样 = 动画没生效）',
+    24, 74, 16, '#8ba0c6');
+
+  var KEYS = ['drifter', 'sprinter', 'bulwark', 'sunder', 'phaser', 'boss'];
+  var COLS = [
+    { t: 0.00, note: '相位 0' },
+    { t: 0.50, note: '相位 1' },
+    { t: 1.00, note: '相位 2' },
+    { t: 1.40, note: '特殊状态' }
+  ];
+  var ROW_H = 158, CELL_W = 172, GAP = 12, LAB_W = 120, TOP = 112;
+
+  KEYS.forEach(function (key, r) {
+    var def = C.ENEMIES[key];
+    var y0 = TOP + r * ROW_H;
+
+    // 行底
+    ctx.fillStyle = r % 2 ? 'rgba(120,164,255,0.04)' : 'rgba(120,164,255,0.02)';
+    ctx.fillRect(16, y0, W - 32, ROW_H - 10);
+
+    // 行标
+    label(def.name, 32, y0 + 56, 22, '#e6eefc', 'left', 'bold');
+    label(key, 32, y0 + 82, 14, '#8ba0c6');
+    label('r=' + def.r + '  hp=' + def.hp, 32, y0 + 104, 14, '#5f7194');
+
+    COLS.forEach(function (col, c) {
+      var cx = 16 + LAB_W + c * (CELL_W + GAP) + CELL_W / 2;
+      var cy = y0 + (ROW_H - 10) / 2;
+
+      // 格
+      ctx.fillStyle = 'rgba(10,18,34,0.9)';
+      ctx.fillRect(16 + LAB_W + c * (CELL_W + GAP), y0 + 6, CELL_W, ROW_H - 22);
+      ctx.strokeStyle = 'rgba(120,164,255,0.14)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(16.5 + LAB_W + c * (CELL_W + GAP), y0 + 6.5, CELL_W - 1, ROW_H - 23);
+
+      // 假敌人：状态由列决定，其余取真实字段
+      var e = {
+        uid: 7 + r * 3 + c, key: key, def: def, color: def.color, r: 36,
+        x: cx, y: cy - 6, fx: 0, fy: 1, hitFlash: 0, off: 3.4, spawnT: 0,
+        phaseT: 0, mode: 'path'
+      };
+      if (c === 3) {
+        if (key === 'sunder') e.mode = 'chew';           // 抡锤
+        else if (key === 'phaser') e.phaseT = 1.2;        // 相位重影
+        else e.hitFlash = 0.2;                            // 受击白闪
+      }
+      M.draw(ctx, e, col.t, 1);
+
+      label(col.note + (c === 3 ? (key === 'sunder' ? '·抡锤' : key === 'phaser' ? '·相位' : '·受击') : ''),
+        cx, y0 + ROW_H - 24, 13, c === 3 ? '#ffd27a' : '#5f7194', 'center');
+    });
+  });
+
+  // 底部：棋盘上的实际大小（64px 格子），看「一眼能不能认出是哪只」
+  var by = TOP + KEYS.length * ROW_H + 16;
+  label('棋盘上的实际大小（64px 格子）', 24, by, 18, '#e6eefc', 'left', 'bold');
+  for (var i = 0; i < 8; i++) {
+    for (var j = 0; j < 2; j++) {
+      ctx.fillStyle = (i + j) % 2 ? 'rgba(120,164,255,0.06)' : 'rgba(120,164,255,0.02)';
+      ctx.fillRect(24 + i * 64, by + 22 + j * 64, 64, 64);
+    }
+  }
+  var order = ['drifter', 'sprinter', 'bulwark', 'sunder', 'phaser', 'boss'];
+  order.forEach(function (key, i) {
+    var def = C.ENEMIES[key];
+    var cx = 24 + (i + 0.5) * 64;
+    var cy = by + 22 + 64;
+    M.draw(ctx, {
+      uid: 31 + i, key: key, def: def, color: def.color, r: def.r,
+      x: cx, y: cy, fx: 0, fy: 1, hitFlash: 0, off: i * 2.1, spawnT: 0,
+      phaseT: 0, mode: 'path'
+    }, 2.2, 1);
+    label(def.name, cx, by + 22 + 128 + 16, 14, '#8ba0c6', 'center');
+  });
+
+  document.title = 'OK';
+})();
+</script>
+</body>
+</html>
