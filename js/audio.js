@@ -119,6 +119,18 @@
 
   A.available = function () { return ok && !muted; };
 
+  /** 切到后台时挂起音频上下文：省电，也避免在后台继续出声 */
+  A.suspend = function () {
+    try { if (ac && typeof ac.suspend === 'function') ac.suspend(); } catch (e) { /* ignore */ }
+  };
+
+  /** 回到前台时恢复；未解锁过则等首次用户手势（A.unlock）再响 */
+  A.resume = function () {
+    try {
+      if (ac && ac.state === 'suspended' && typeof ac.resume === 'function') ac.resume();
+    } catch (e) { /* ignore */ }
+  };
+
   /** 供自检读取当前增益链，确认音量旋钮真的作用到了节点上 */
   A.levels = function () {
     return {

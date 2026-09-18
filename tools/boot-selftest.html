@@ -214,6 +214,31 @@ canvas{display:none}</style>
     return 'OK 档位 小/中/大 可切，音量与震动开关生效，三个次级按钮都能进能回，图鉴与首次遭遇弹窗正常';
   });
 
+  step('8_后台暂停与恢复', function () {
+    var G0 = G;
+    G0.Game.reset();
+    G0.Game.startRun();
+    G0.Game.startWave(true);
+    for (var i = 0; i < 120; i++) G0.Game.update(1 / 60);
+    var t0 = G0.Game.time, hp0 = G0.Game.coreHp, waveT0 = G0.Game.waveTime;
+
+    // 进后台
+    G0.Game.onHide();
+    if (!G0.Game.hidden) throw new Error('onHide 没置位');
+    for (var j = 0; j < 600; j++) G0.Game.update(1 / 60);   // 后台约 10 秒
+    if (G0.Game.time !== t0) throw new Error('后台 time 仍在走: ' + G0.Game.time + ' vs ' + t0);
+    if (G0.Game.coreHp !== hp0) throw new Error('后台核心仍在掉血');
+    if (G0.Game.waveTime !== waveT0) throw new Error('后台波次仍在推进');
+    if (G0.Game.enemies.length) { /* 已存在的怪不动即可，无新怪应刷出 */ }
+
+    // 回前台：自动继续
+    G0.Game.onShow();
+    if (G0.Game.hidden) throw new Error('onShow 没复位');
+    G0.Game.update(1 / 60);
+    if (!(G0.Game.time > t0)) throw new Error('恢复后 time 不前进');
+    return 'OK 后台 10s 冻结(time/wave/core 不变)，回前台即继续';
+  });
+
   report.ok = report.errors.length === 0;
   document.getElementById('out').textContent = JSON.stringify(report);
 })();

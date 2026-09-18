@@ -10,6 +10,7 @@
     state: 'menu',          // menu | set | help | codex | pop | prep | wave | over | win
     prevState: 'menu',      // 从哪个整屏版式进来的（设置/玩法/图鉴的「返回」回到这里；
                             // 「首次遭遇」弹窗也用它记住暂停在哪——prep 还是 wave）
+    hidden: false,         // 切到后台（visibilitychange / wx.onHide）置 true → 主循环暂停
     time: 0,
     coreHp: 100,
     coreMax: 100,
@@ -92,6 +93,7 @@
     g.hitStop = 0;
     g.toastT = 0;
     g.bannerT = 0;
+    g.hidden = false;
     /* 图鉴的选中项与待弹队列要清；已解锁记录不动 —— 那是跨局的（存在 echo_seen 里） */
     g.codexSel = null;
     g.codexQueue.length = 0;
@@ -493,6 +495,9 @@
   /* ------------------------------------------------------------------ */
   G.Game.update = function (dt) {
     var g = game;
+    // 切到后台期间，任何一次 update 直接跳过：时间、敌人、塔、波次全冻住，
+    // 回来后从原状态继续，不会堆积一大段 dt 把战场瞬移。
+    if (g.hidden) return;
     g.time += dt;
 
     if (g.shake > 0) g.shake = Math.max(0, g.shake - dt * 22);
@@ -859,11 +864,64 @@
     game.state = back;
   };
 
+  /* ------------------------------------------------------------------ */
+  /*  切后台 / 回前台                                                       */
+  /* ------------------------------------------------------------------ */
+  /**
+   * 只改一个 hidden 标志，主循环（beginGameLoop）与 update 都读它。
+   * onHide 同时挂起音频上下文；onShow 恢复并给一条「已暂停·已继续」反馈。
+   * 不做需要点击的遮罩 —— 用户要的是「回来就继续」，不是回来先点一下。
+   */
+  G.Game.onHide = function () {
+    game.hidden = true;
+    if (G.Audio && G.Audio.suspend) G.Audio.suspend();
+  };
+
+  G.Game.onShow = function () {
+    game.hidden = false;
+    if (G.Audio && G.Audio.resume) G.Audio.resume();
+    if (game.state === 'prep' || game.state === 'wave') {
+      game.bannerMsg = '已暂停 · 已继续';
+      game.bannerT = 1.3;
+    }
+  };
+
+  /**
+   * 双端绑定「切后台 / 回前台」：
+   *   浏览器 —— visibilitychange（切标签页 / 最小化 / App 切走都触发）；
+   *            外加 pagehide/pageshow 覆盖 bfcache 前进后退缓存。
+   *   微信 —— wx.onHide / wx.onShow（系统级前后台切换）。
+   * 两个分支都 try 包裹，缺哪个环境都不影响另一个；wx 不存在时整段跳过。
+   */
+  G.Game.installBackgroundPause = function () {
+    var G0 = G;
+    try {
+      if (typeof document !== 'undefined' && document.addEventListener &&
+        typeof window !== 'undefined' && window.addEventListener) {
+        document.addEventListener('visibilitychange', function () {
+          if (document.hidden) G0.Game.onHide(); else G0.Game.onShow();
+        });
+        // 页面被丢进 bfcache（前进 / 后退缓存）时同样算离开
+        window.addEventListener('pagehide', function () { G0.Game.onHide(); });
+        window.addEventListener('pageshow', function () { G0.Game.onShow(); });
+      }
+    } catch (e) { /* ignore */ }
+    try {
+      if (typeof wx !== 'undefined') {
+        if (typeof wx.onHide === 'function') wx.onHide(function () { G0.Game.onHide(); });
+        if (typeof wx.onShow === 'function') wx.onShow(function () { G0.Game.onShow(); });
+      }
+    } catch (e) { /* ignore */ }
+  };
+
   G.Game.beginGameLoop = function () {
     var last = 0;
     var step = function (ts) {
       if (!ts) ts = 0;
       if (!last) last = ts;
+      // 后台期间：不更新也不重绘，只把时钟对齐到当前帧并继续排下一帧，
+      // 这样回前台时 dt 不会因「后台那段时长」而爆掉（即便有 dt 上限也不会跳）。
+      if (game.hidden) { last = ts; R.raf(step); return; }
       var dt = (ts - last) / 1000;
       last = ts;
       if (dt > 0.06) dt = 0.06;
@@ -894,6 +952,7 @@
       up: function () { }
     });
     G.Game.beginGameLoop();
+    G.Game.installBackgroundPause();
   };
 
 })(typeof GameGlobal !== 'undefined' ? GameGlobal
