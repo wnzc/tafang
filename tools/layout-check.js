@@ -167,9 +167,18 @@ const LEVELS = load({ w: 390, h: 844 }).CFG.FONT_LEVELS;
 
   const elems = Object.keys(G.CFG.ELEM);
   const missing = elems.filter(e => !G.Icons.has(e));
-  check(missing.length === 0, '七元素图标数据齐全', missing.join(', '));
-  check(G.CFG.TOWER_ORDER.length === elems.length, '每个元素都有对应炮塔',
-    `${G.CFG.TOWER_ORDER.length} vs ${elems.length}`);
+  check(missing.length === 0, '元素图标数据齐全（含留档元素）', missing.join(', '));
+  /* 塔数不再恒等于元素数：元素可以「留档」—— 凝霜（冰）暂时下线，但元素配色、
+   * 反应条目、图标数据全部保留，解注即回来。所以这里改判两件事：
+   *   ① 每座上场的塔，其元素必须有定义、有图标（这才是不崩的下限，
+   *      光断言「数量相等」会在留档时误报，也挡不住 ORDER 里写错元素名）；
+   *   ② 塔数 ≤ 元素数 —— 防止 ORDER 里出现重复项或凭空冒出的元素名。 */
+  const order = G.CFG.TOWER_ORDER;
+  const badTower = order.filter(k =>
+    !G.CFG.TOWERS[k] || !G.CFG.ELEM[G.CFG.TOWERS[k].elem] || !G.Icons.has(G.CFG.TOWERS[k].elem));
+  check(badTower.length === 0, '每座塔的元素都有定义与图标数据', badTower.join(', '));
+  check(order.length <= elems.length, '塔数不超过元素数',
+    `${order.length} vs ${elems.length}`);
 
   const thin = [], dead = [];
   const segs = [];
@@ -285,9 +294,9 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
     line.checks.push(check(LAY.boardY + LAY.boardH <= LAY.barY + EPS, '棋盘在建造栏之上',
       `棋盘底 ${Math.round(LAY.boardY + LAY.boardH)} vs 栏顶 ${Math.round(LAY.barY)}`));
 
-    /* 7b) 底部卡片（7 塔 + 脉冲 + 倒带 = 9 张）：
-     *     两行铺开、每张都在栏内、两两不重叠、同行与两行之间都有呼吸位，
-     *     卡名/副标题在卡内排得下。上一版一行 9 张（卡宽只有 72）挤得看不清，
+    /* 7b) 底部卡片（塔数 + 脉冲 + 倒带，当前 6 + 2 = 8 张）：
+     *     两行 4+4 平铺、每张都在栏内、两两不重叠、同行与两行之间都有呼吸位，
+     *     卡名/副标题在卡内排得下。更早那版一行 9 张（卡宽只有 72）挤得看不清，
      *     这里的 minGap / 卡宽断言就是防它退回去。 */
     const cards = LAY.cards;
     const perRow = Math.ceil((CFG.TOWER_ORDER.length + 2) / 2);
@@ -465,7 +474,7 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
         title: 36, sub: 74, hpLabel: 106, ecLabel: 164,
         hpBarY: 122, ecBarY: 180, waveBtnY: 218, soundY: 18,
         hudRight: 566, contentTop: 296, boardY: 354, barY: 1322, designH: 1558,
-        barH: 236, cardW: 129, cardH: 104
+        barH: 236, cardW: 164, cardH: 104   // cardW 129→164：凝霜下线后 8 张卡正好 4+4 两行
       };
       const now = {
         title: H.title, sub: H.sub, hpLabel: H.hpLabel, ecLabel: H.ecLabel,

@@ -71,8 +71,8 @@
   if (scene === 'game') {
     G.Game.startRun();
     // 抱团吃共振链 + 贴边吃反应节点，两种机制都能在图上看到
-    place([[3, 5, 'pyro'], [4, 5, 'pyro'], [5, 5, 'cryo'],
-      [6, 5, 'cryo'], [4, 6, 'electro'], [5, 6, 'electro'], [2, 8, 'pyro']]);
+    place([[3, 5, 'pyro'], [4, 5, 'pyro'], [5, 5, 'hydro'],
+      [6, 5, 'hydro'], [4, 6, 'electro'], [5, 6, 'electro'], [2, 8, 'pyro']]);
     // &lv=5：把塔全部升到指定等级，验收「等级越高越华丽」的塔身渲染
     var lvShot = parseInt(q.get('lv'), 10) || 0;
     if (lvShot > 1) {
@@ -89,7 +89,7 @@
   } else if (scene === 'tech') {
     // 选中一座塔 → 打开塔面板，检查面板与 Toast 的字号
     G.Game.startRun();
-    place([[4, 5, 'pyro'], [5, 5, 'cryo'], [4, 6, 'electro']]);
+    place([[4, 5, 'pyro'], [5, 5, 'hydro'], [4, 6, 'electro']]);
     var t0 = G.Game.towers[0];
     G.Game.onTap(t0.x, t0.y);       // 点塔身 = 选中（走真实命中逻辑）
     G.Game.toast('能量不足');

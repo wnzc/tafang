@@ -156,7 +156,7 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
     G.Game.reset();
     G.Game.startRun();
     G.Game.energy = 99999;
-    var plans = [[3, 5, 'pyro'], [4, 5, 'pyro'], [5, 5, 'cryo'], [6, 5, 'cryo'],
+    var plans = [[3, 5, 'pyro'], [4, 5, 'pyro'], [5, 5, 'hydro'], [6, 5, 'hydro'],
       [4, 6, 'electro'], [5, 6, 'electro'], [2, 8, 'pyro']];
     for (var pi = 0; pi < plans.length; pi++) {
       G.Game.selCard = plans[pi][2];

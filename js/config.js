@@ -35,6 +35,8 @@
   /* ---------------- 元素（七元素，反应规则对齐原神） ----------------
    * 火pyro / 水hydro / 冰cryo / 雷electro / 风anemo / 岩geo / 草dendro
    * color 取原神元素色的近似（保夜色背景下可读），soft 是高亮/描边用浅色。
+   * 七个元素全部保留：cryo 当前没有上场塔（凝霜暂下线），但配色、图标、反应条目
+   * 全部留档 —— 少一个元素就少 6 条反应，删掉再想加回来代价太大。
    */
   CFG.ELEM = {
     pyro:    { key: 'pyro',    name: '火', color: '#ef7938', soft: '#ffc08a' },
@@ -46,8 +48,8 @@
     dendro:  { key: 'dendro',  name: '草', color: '#a5ec25', soft: '#dcff96' }
   };
 
-  /* ---------------- 防御塔（7 座，攻击方式各有分工） ----------------
-   * bolt   直射弹（火）           wave  范围减速波（水/冰，冰带冻结概率）
+  /* ---------------- 防御塔（上场 6 座，攻击方式各有分工） ----------------
+   * bolt   直射弹（火）           wave  范围减速波（水；冰同型，见下方留档块）
    * chain  连锁闪电（雷）         gust  龙卷推开（风）
    * spike  重击单体（岩）         spore 落孢毒域（草，持续伤害）
    */
@@ -72,11 +74,17 @@
       dmg: 7, range: 138, rate: 0.80,
       kind: 'gust', aoe: 96, push: 40
     },
+    /* ——— 凝霜（冰）暂时下线：整块留档，恢复 = 解开本段与 TOWER_ORDER 的注释 ———
+     * 下线原因：和水塔同为 kind:'wave'（范围减速波），定位重叠最高；
+     * 卡片从 9 张收到 8 张后正好两行 4+4，卡宽 129 → 164，元素图标看得清。
+     * 留档的东西：CFG.ELEM.cryo、RES.reactions 里的 5 条 cryo 反应、icons.js 的冰图标、
+     * towers.js 的冻结概率分支、audio.js 的 shootFrost 派发 —— 解注即全部生效。
     cryo: {
       key: 'cryo', name: '凝霜', elem: 'cryo', cost: 85, hp: 260,
       dmg: 10, range: 164, rate: 0.85,
       kind: 'wave', aoe: 58, slow: 0.50, slowT: 2.0, freezeChance: 0.22, freezeT: 1.1
     },
+    —————————————————————————————————————————————————————————————— */
     electro: {
       key: 'electro', name: '掣雷', elem: 'electro', cost: 90, hp: 240,
       dmg: 24, range: 192, rate: 0.70,
@@ -88,7 +96,10 @@
       kind: 'spike', stun: 0.45
     }
   };
-  CFG.TOWER_ORDER = ['pyro', 'hydro', 'dendro', 'anemo', 'cryo', 'electro', 'geo'];
+  /* 上场塔的元素顺序（卡片按这个顺序铺两行）。
+   * 凝霜（冰）已下线：把 'cryo' 解注回 anemo 与 electro 之间，同时解开上面 CFG.TOWERS
+   * 里的 cryo 定义块，两处一起解即完全恢复（元素、反应表、图标、音效都还在）。 */
+  CFG.TOWER_ORDER = ['pyro', 'hydro', 'dendro', 'anemo', /* 'cryo', */ 'electro', 'geo'];
 
   /** 等级成长 */
   CFG.LV = {
@@ -394,9 +405,8 @@
     var boardY = contentTop +
       Math.max(0, (barY - contentTop - CFG.BOARD_H - RESERVE_BELOW) / 2);
 
-    /* 卡片：两行铺开（7 塔 + 脉冲 + 倒带 = 9 张）。
-     * 一行 9 张时卡宽只有 72，原神元素图标缩到 12 就成了糊点，「像不像」全看运气。
-     * 改 2 行 × 每行最多 5 张：卡宽 129、图标 16，末行不足 5 张就整行居中。
+    /* 卡片：两行铺开（6 塔 + 脉冲 + 倒带 = 8 张）。
+     * 冰塔下线后正好 4 + 4 两行，卡宽从 129 涨到 164（一行挤 9 张时只有 72，图标糊成点）。
      * 顺序照旧按 TOWER_ORDER 排，所以「塔在上、技能在下」是稳定的，
      * 不会因为以后加塔把脉冲/倒带挤到第二行以外。 */
     var n = CFG.TOWER_ORDER.length + 2;
