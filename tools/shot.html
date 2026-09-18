@@ -127,6 +127,41 @@
     G.Game.bannerT = 0;
     G.Game.toastT = 0;
 
+  } else if (scene === 'monsters-effects') {
+    /* 状态特效常驻文字标签验收：给 6 种怪各叠加不同控场状态，
+     * 看「减速 / 击退 / 易伤 / 定身 / 燃烧」的小药丸是否真的贴在怪身下、
+     * 且效果在就显示、消失才撤。直接设字段，不真跑反应节点（截图页不值得等冷却）。 */
+    G.Game.startRun();
+    place([[0, 5, 'pyro'], [9, 5, 'electro']]);
+    G.Codex.markAllSeen();
+    var meKinds = ['drifter', 'sprinter', 'bulwark', 'sunder', 'phaser', 'boss'];
+    var meFx = [
+      { slow: 1, kb: 1 },
+      { slow: 1, burn: 1 },
+      { kb: 1, super: 1 },
+      { slow: 1, super: 1, burn: 1 },
+      { kb: 1, stun: 1 },
+      { slow: 1, kb: 1, super: 1, stun: 1, burn: 1 }
+    ];
+    for (var mei = 0; mei < meKinds.length; mei++) {
+      var me = G.Enemies.create(meKinds[mei], 1, 2, 1);
+      me.x = G.Grid.cellCX(1 + (mei % 3) * 3.2);
+      me.y = G.LAY.boardY + G.CFG.CELL * (1.6 + Math.floor(mei / 3) * 2.4);
+      me.spawnT = 0;
+      me.hp = me.maxHp * (0.35 + 0.12 * mei);
+      me.fx = 0.2; me.fy = 0.4;
+      var fx = meFx[mei];
+      if (fx.slow)  { me.slowAmt = 0.30; me.slowT = 999; }
+      if (fx.kb)    { me.kbT = 0.5; me.kbvx = 0; me.kbvy = 0; me.kbImmune = 0; }
+      if (fx.super) { me.superT = 3; }
+      if (fx.stun)  { me.stunT = 1; }
+      if (fx.burn)  { me.burnT = 4; me.burnDps = 8; }
+      G.Game.enemies.push(me);
+    }
+    for (var mef = 0; mef < 12; mef++) G.Game.update(1 / 60);
+    G.Game.bannerT = 0;
+    G.Game.toastT = 0;
+
   } else if (scene === 'codex') {
     /* 图鉴验收：&tab=0|1（怪物 / 炮台）&sel=<key>（直接进详情）
      * &seen=drifter,sprinter（默认只解锁前两只 —— 剩下的格子会画成三个问号，

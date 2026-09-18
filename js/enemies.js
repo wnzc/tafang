@@ -119,6 +119,11 @@ E.push = function (e, dirX, dirY, dist) {
   // 还在出生通道里的怪不吃击退：那段走的是「出生保护」分支，
   // 推力会被丢掉而 kbT 留着，等它进棋盘时凭空滑一下
   if (e.y < G.LAY.boardY) return false;
+  /* 被减速的怪吃到的击退按比例缩水 —— 这是「减速 + 击退一起削弱」的直接耦合：
+   * 击退期间怪不前进（steer 那段被跳过），若击退距离 ≈ 减速后的前进距离，
+   * 两者正好抵消，怪就钉在原地来回（用户反馈的「卡住不前进」）。
+   * 缩水后「慢 + 退」组合仍是净前进，而单独挨击退（没被减速）完全不受影响。 */
+  if (e.slowAmt > 0) dist *= (1 - 0.55 * e.slowAmt);
   var d = Math.sqrt(dirX * dirX + dirY * dirY);
   if (d < 0.0001) return false;
   var v0 = dist / KB_TAU;

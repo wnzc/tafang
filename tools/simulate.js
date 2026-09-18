@@ -162,6 +162,40 @@ try {
   report.combat = res;
 }
 
+/* ---------------------- 削弱验证：减速 + 击退叠加仍净前进 ----------------------
+ * 用户反馈：减速 + 击退叠加会把怪钉在原地、来回抖、不前进。
+ * 削弱（水塔 slow 0.40→0.30、流风 push 40→22）之后，必须仍能净前进。
+ * 这里直接造一只常驻减速的怪，按流风频率（~1.25s）反复给一次削减后的击退，
+ * 跑 12 秒看它 y 是否持续往下（朝核心）走，而不是卡死。 */
+{
+  const g = G.Game;
+  G.Game.reset();
+  G.Game.startRun();
+  const e2 = G.Enemies.create('drifter', 1, 0, 1);
+  e2.x = G.CFG.BX + G.CFG.CELL * 4 + 32;
+  e2.y = G.LAY.boardY + G.CFG.CELL * 3;
+  e2.fx = 0; e2.fy = 1;
+  e2.slowAmt = 0.30; e2.slowT = 999;            // 模拟水塔常驻减速（已削弱到 0.30）
+  g.enemies.push(e2);
+  const yStart = e2.y;
+  const gustPush = G.CFG.TOWERS.anemo.push;      // 削减后的流风击退（从 config 读真值）
+  let advanced = 0;
+  for (let f2 = 0; f2 < 60 * 12; f2++) {
+    if (f2 % 75 === 0) G.Enemies.push(e2, e2.fx, e2.fy, gustPush);  // ~1.25s 一次 ≈ 流风频率
+    G.Enemies.update(g, 1 / 60);
+    if (e2.alive === false) break;
+    advanced = e2.y - yStart;
+    if (advanced > 30) break;
+  }
+  const slowKb = { gustPush: gustPush, advanced: +advanced.toFixed(1) };
+  // 阈值取 15：要求「明显净前进」而不是「近似卡死」的边界值，
+  // 否则将来数值一滑回原样，这个断言又会误判通过。
+  if (advanced < 15 || e2.y <= yStart) {
+    report.errors.push('削弱后减速+击退仍把怪钉死: ' + JSON.stringify(slowKb));
+  }
+  report.slowKb = slowKb;
+}
+
 /* ---------------------- 首次遭遇弹窗：独立走一遍 ----------------------
  * 弹窗会把 state 切到 'pop' 并**暂停战斗**，所以它不能混在主模拟里跑 ——
  * 主模拟跑的是「老玩家」路径（下面的 markAllSeen），弹窗流程单独验：
@@ -370,6 +404,7 @@ console.log('音频可用    :', G.Audio ? (G.Audio.available() ? '是' : '否�
 console.log('塔被摧毁    :', report.towerLost || 0, ' 次');
 console.log('图鉴弹窗    :', JSON.stringify(report.pop));
 console.log('击退 / 护甲 :', JSON.stringify(report.combat));
+console.log('减速+击退   :', JSON.stringify(report.slowKb));
 
 if (report.errors.length) {
   console.log('\n[FAIL] 运行异常:');

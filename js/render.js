@@ -807,6 +807,50 @@
           e.reactColor || '#ffffff', 'center', 'bold');
         ctx.globalAlpha = 1;
       }
+      // 状态特效常驻标签：减速 / 击退 / 易伤 / 定身 / 燃烧
+      effectBadges(ctx, e);
+    }
+  }
+
+  /* ----------------------- 状态特效常驻标签 -----------------------
+   * 减速 / 击退 / 易伤 / 定身 / 燃烧 各自一枚带文字的小药丸，画在怪物身体正下方。
+   * 用户明确要求：效果施加了就要在怪身上看得见文字，而且直到效果消失才撤下
+   * —— 不是像反应名那样 1 秒淡出，是常驻的「当前被控状态」。
+   * 怪与怪之间最不挤的位置就是脚下那一格，所以放身体正下方、横向居中排列；
+   * 颜色取各效果主色：减速=冰蓝、击退=风青、易伤=粉、定身=白、燃烧=暖橙。 */
+  function effectBadges(ctx, e) {
+    var items = [];
+    if (e.slowAmt > 0) items.push({ t: '减速', c: CFG.ELEM.cryo.color });
+    if (e.kbT > 0)      items.push({ t: '击退', c: CFG.ELEM.anemo.color });
+    if (e.superT > 0)   items.push({ t: '易伤', c: '#ff7bd0' });
+    if (e.stunT > 0)    items.push({ t: '定身', c: '#ffffff' });
+    if (e.burnT > 0)    items.push({ t: '燃烧', c: '#ffae5e' });
+    if (!items.length) return;
+
+    var fs = 12, padX = S(8), gap = S(5), bh = S(22);
+    var by = e.y + e.r + S(11);
+    ctx.font = fontOf(fs, 'bold');
+    var widths = [], total = 0;
+    for (var i = 0; i < items.length; i++) {
+      var w = (ctx.measureText ? ctx.measureText(items[i].t).width : 0) ||
+              (items[i].t.length * CFG.FS(fs) * 0.62);
+      w += padX * 2;
+      widths.push(w);
+      total += w + (i ? gap : 0);
+    }
+    var x = e.x - total / 2;
+    if (x < 4) x = 4;                               // 贴边时收进画布，别被裁掉
+    else if (x + total > 716) x = 716 - total;
+    for (var j = 0; j < items.length; j++) {
+      var ww = widths[j];
+      U.roundRect(ctx, x, by, ww, bh, bh / 2);
+      ctx.fillStyle = 'rgba(10,18,32,0.82)';
+      ctx.fill();
+      ctx.strokeStyle = U.hexToRgba(items[j].c, 0.85);
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+      txt(ctx, items[j].t, x + ww / 2, by + bh / 2, fs, items[j].c, 'center', 'bold');
+      x += ww + gap;
     }
   }
 

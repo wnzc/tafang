@@ -15,6 +15,7 @@ const JOBS = [
   ['battle.png', 'scene=game&lv=5'],
   ['monsters.png', 'scene=monsters'],
   ['monsters-hp.png', 'scene=monsters&react=1'],
+  ['monsters-effects.png', 'scene=monsters-effects'],
   ['codex-monsters.png', 'scene=codex&tab=0'],
   ['codex-monster-detail.png', 'scene=codex&tab=0&sel=drifter'],
   ['codex-boss.png', 'scene=codex&tab=0&sel=boss&seen=all'],

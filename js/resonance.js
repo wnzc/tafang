@@ -185,8 +185,8 @@
         if (!e.alive) continue;
         if (U.dist(e.x, e.y, node.x, node.y) > def.radius + e.r) continue;
         reactHit(e, def.dmg, def);
-        e.slowAmt = Math.max(e.slowAmt, 0.5);
-        e.slowT = Math.max(e.slowT, 1.6);
+        e.slowAmt = Math.max(e.slowAmt, 0.35);
+        e.slowT = Math.max(e.slowT, 1.4);
         e.superT = Math.max(e.superT, def.dur);
         G.FX.ice(e.x, e.y, e.r + 12, def.color);
       }

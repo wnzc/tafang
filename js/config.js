@@ -62,7 +62,7 @@
     hydro: {
       key: 'hydro', name: '澄流', elem: 'hydro', cost: 65, hp: 260,
       dmg: 9, range: 168, rate: 0.95,
-      kind: 'wave', aoe: 56, slow: 0.40, slowT: 1.6
+      kind: 'wave', aoe: 56, slow: 0.30, slowT: 1.4
     },
     dendro: {
       key: 'dendro', name: '青蔓', elem: 'dendro', cost: 75, hp: 250,
@@ -72,7 +72,7 @@
     anemo: {
       key: 'anemo', name: '流风', elem: 'anemo', cost: 80, hp: 240,
       dmg: 7, range: 138, rate: 0.80,
-      kind: 'gust', aoe: 96, push: 40
+      kind: 'gust', aoe: 96, push: 18
     },
     /* ——— 凝霜（冰）暂时下线：整块留档，恢复 = 解开本段与 TOWER_ORDER 的注释 ———
      * 下线原因：和水塔同为 kind:'wave'（范围减速波），定位重叠最高；
@@ -126,11 +126,11 @@
      * 所以反应的数值不需要跟塔的单发伤害比大小 —— 它的价值在穿透与范围。 */
     reactions: {
       'hydro|pyro': {        // 蒸发：白热汽爆，伤害翻倍感
-        name: '蒸发', cd: 2.4, radius: 76, dmg: 46, push: 30,
+        name: '蒸发', cd: 2.4, radius: 76, dmg: 46, push: 20,
         color: '#ffd08a', kind: 'burst'
       },
       'cryo|pyro': {         // 融化：全表最高单发伤害
-        name: '融化', cd: 2.6, radius: 68, dmg: 58, push: 22,
+        name: '融化', cd: 2.6, radius: 68, dmg: 58, push: 14,
         color: '#ffb37a', kind: 'burst'
       },
       'pyro|electro': {      // 超载：爆炸 + 电弧跳射
@@ -142,7 +142,7 @@
         color: '#b7a3ff', kind: 'echain'
       },
       'cryo|electro': {      // 超导：减防易伤 + 冰霜范围
-        name: '超导', cd: 2.4, radius: 92, dmg: 9, dur: 3.2, extra: 0.25,
+        name: '超导', cd: 2.4, radius: 92, dmg: 9, dur: 2.6, extra: 0.25,
         color: '#8de8ff', kind: 'super'
       },
       'cryo|hydro': {        // 冻结：范围定身
@@ -157,12 +157,12 @@
        * 看起来就是一卡一卡。周期拉长后节奏变成「推一段 → 慢慢走回来」。
        * push 46 → 34 同理：退得太远，减速期间根本走不回来，
        * 等于把怪永久钉在原地，反而看不出风在起作用。 */
-      'anemo|pyro':  { name: '扩散', cd: 3.2, radius: 104, dmg: 14, push: 34, color: '#8af2e0', kind: 'swirl' },
-      'anemo|hydro': { name: '扩散', cd: 3.2, radius: 104, dmg: 14, push: 34, color: '#8af2e0', kind: 'swirl' },
-      'anemo|cryo':  { name: '扩散', cd: 3.2, radius: 104, dmg: 14, push: 34, color: '#8af2e0', kind: 'swirl' },
-      'anemo|electro': { name: '扩散', cd: 3.2, radius: 104, dmg: 14, push: 34, color: '#8af2e0', kind: 'swirl' },
-      'anemo|dendro': { name: '扩散', cd: 3.2, radius: 104, dmg: 14, push: 34, color: '#8af2e0', kind: 'swirl' },
-      'anemo|geo':   { name: '湍流', cd: 3.4, radius: 96, dmg: 12, push: 40, color: '#a8ecd8', kind: 'swirl' },
+      'anemo|pyro':  { name: '扩散', cd: 3.2, radius: 104, dmg: 14, push: 22, color: '#8af2e0', kind: 'swirl' },
+      'anemo|hydro': { name: '扩散', cd: 3.2, radius: 104, dmg: 14, push: 22, color: '#8af2e0', kind: 'swirl' },
+      'anemo|cryo':  { name: '扩散', cd: 3.2, radius: 104, dmg: 14, push: 22, color: '#8af2e0', kind: 'swirl' },
+      'anemo|electro': { name: '扩散', cd: 3.2, radius: 104, dmg: 14, push: 22, color: '#8af2e0', kind: 'swirl' },
+      'anemo|dendro': { name: '扩散', cd: 3.2, radius: 104, dmg: 14, push: 22, color: '#8af2e0', kind: 'swirl' },
+      'anemo|geo':   { name: '湍流', cd: 3.4, radius: 96, dmg: 12, push: 26, color: '#a8ecd8', kind: 'swirl' },
       // —— 结晶：给邻塔上护盾，短时间内免疫啃咬 ——
       'geo|hydro':   { name: '结晶', cd: 4.0, radius: 110, dur: 5.0, color: '#ffe0a8', kind: 'crystal' },
       'geo|pyro':    { name: '结晶', cd: 4.0, radius: 110, dur: 5.0, color: '#ffe0a8', kind: 'crystal' },
