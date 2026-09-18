@@ -33,7 +33,7 @@ const canvasStub = {
   addEventListener: () => { }
 };
 
-const FILES = ['runtime', 'util', 'audio', 'config', 'settings', 'grid', 'fx', 'enemies',
+const FILES = ['runtime', 'util', 'icons', 'audio', 'config', 'settings', 'grid', 'fx', 'enemies',
   'towers', 'resonance', 'waves', 'ui', 'render', 'main'];
 
 /** 在全新的模块环境里跑一次 init()，可选指定字号档 */
@@ -147,6 +147,50 @@ function estW(s, px) {
 
 const LEVELS = load({ w: 390, h: 844 }).CFG.FONT_LEVELS;
 
+/* ---------------------- 0) 元素图标 ----------------------
+ * 卡片和塔身核心上的元素标记现在直接画原神官方图标的矢量路径（js/icons.js）。
+ * 路径数据或解析器任一环节坏掉，表现都是「图标凭空消失」——数字全合法、画面全空白，
+ * 所以这里用一个记账用的 ctx 真跑一遍，数它到底有没有画出来。
+ */
+{
+  const G = load({ w: 390, h: 844 });
+  const calls = {};
+  const named = ['beginPath', 'moveTo', 'lineTo', 'bezierCurveTo', 'quadraticCurveTo',
+    'closePath', 'fill', 'save', 'restore', 'translate', 'scale'];
+  const recCtx = new Proxy({}, {
+    get(t, k) {
+      if (named.indexOf(k) >= 0) return () => { calls[k] = (calls[k] || 0) + 1; };
+      return () => { };
+    },
+    set(t, k, v) { t[k] = v; return true; }
+  });
+
+  const elems = Object.keys(G.CFG.ELEM);
+  const missing = elems.filter(e => !G.Icons.has(e));
+  check(missing.length === 0, '七元素图标数据齐全', missing.join(', '));
+  check(G.CFG.TOWER_ORDER.length === elems.length, '每个元素都有对应炮塔',
+    `${G.CFG.TOWER_ORDER.length} vs ${elems.length}`);
+
+  const thin = [], dead = [];
+  const segs = [];
+  for (const e of elems) {
+    for (const k in calls) delete calls[k];
+    const okDraw = G.Icons.draw(recCtx, e, 100, 100, 16);
+    const seg = (calls.bezierCurveTo || 0) + (calls.lineTo || 0);
+    segs.push(e + ':' + seg);
+    if (!okDraw || !(calls.fill >= 1)) dead.push(e);
+    else if (seg < 12) thin.push(e + '(' + seg + ')');
+    // 没有这个元素时不许假装画成功（调用方靠返回值决定要不要兜底）
+  }
+  check(dead.length === 0, '每个元素图标都能画出闭合路径并填充', dead.join(', '));
+  check(thin.length === 0, '每个元素图标的路径复杂度够（≥12 段）', thin.join(', '));
+  check(!G.Icons.draw(recCtx, 'not_an_element', 100, 100, 16), '未知元素返回 false（可兜底）');
+  check(!!G.CFG.S && G.CFG.S(96) === Math.round(96 * G.CFG.LAY_K), '布局倍率入口一致', '');
+  console.log('');
+  console.log('元素图标分段数：' + segs.join('  '));
+}
+
+
 /* ---------------------- 逐个机型 × 逐档字号 ---------------------- */
 for (let lv = 0; lv < LEVELS.length; lv++) {
   for (const p of PROFILES) {
@@ -241,18 +285,67 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
     line.checks.push(check(LAY.boardY + LAY.boardH <= LAY.barY + EPS, '棋盘在建造栏之上',
       `棋盘底 ${Math.round(LAY.boardY + LAY.boardH)} vs 栏顶 ${Math.round(LAY.barY)}`));
 
-    // 7b) 底部 9 张卡（7 塔 + 脉冲 + 倒带）：必须在建造栏里，且卡名放得下
-    const c0 = LAY.cards[0], c4 = LAY.cards[LAY.cards.length - 1];
-    line.checks.push(check(c0.x >= 12 && c4.x + c4.w <= 708, '卡片横向在栏内',
-      `[${c0.x}, ${c4.x + c4.w}]`));
-    line.checks.push(check(LAY.cards.length === CFG.TOWER_ORDER.length + 2, '卡片数量 = 塔数 + 2',
-      `${LAY.cards.length} vs ${CFG.TOWER_ORDER.length + 2}`));
-    line.checks.push(check(c0.y >= LAY.barY && c0.y + c0.h <= LAY.barY + LAY.barH, '卡片纵向在栏内',
-      `卡[${c0.y}, ${c0.y + c0.h}] 栏[${LAY.barY}, ${LAY.barY + LAY.barH}]`));
-    // 卡名全部两字（炎爆/澄流/…/脉冲/倒带），两侧至少各留 S(6) 的呼吸位。
-    // 卡宽不能跟字号一起涨（9 张卡的总宽被棋盘锁死），所以这一条是大字号档的下限判据。
-    line.checks.push(check(c0.w >= estW('炎爆', F(12)) + S(12), '卡宽容得下 2 字卡名',
-      `卡宽 ${c0.w} vs 需要 ${(estW('炎爆', F(12)) + S(12)).toFixed(0)}`));
+    /* 7b) 底部卡片（7 塔 + 脉冲 + 倒带 = 9 张）：
+     *     两行铺开、每张都在栏内、两两不重叠、同行与两行之间都有呼吸位，
+     *     卡名/副标题在卡内排得下。上一版一行 9 张（卡宽只有 72）挤得看不清，
+     *     这里的 minGap / 卡宽断言就是防它退回去。 */
+    const cards = LAY.cards;
+    const perRow = Math.ceil((CFG.TOWER_ORDER.length + 2) / 2);
+    line.checks.push(check(cards.length === CFG.TOWER_ORDER.length + 2, '卡片数量 = 塔数 + 2',
+      `${cards.length} vs ${CFG.TOWER_ORDER.length + 2}`));
+    const rowOf = r => (r.row === undefined ? 0 : r.row);
+    const rowIdx = Array.from(new Set(cards.map(rowOf))).sort((a, b) => a - b);
+    line.checks.push(check(rowIdx.length === 2, '卡片铺成两行', `实际 ${rowIdx.length} 行`));
+    const rowCounts = rowIdx.map(r => cards.filter(c => rowOf(c) === r).length);
+    line.checks.push(check(rowCounts[0] === perRow && rowCounts.reduce((a, b) => a + b, 0) === cards.length,
+      `每行卡片数正确（首行 ${perRow} 张）`, rowCounts.join(' / ')));
+
+    const outOfBar = cards.filter(c => c.x < 12 - EPS || c.x + c.w > 708 + EPS ||
+      c.y < LAY.barY - EPS || c.y + c.h > LAY.barY + LAY.barH + EPS);
+    line.checks.push(check(outOfBar.length === 0, '每张卡都在建造栏内',
+      outOfBar.map(c => `#${c.idx}[${Math.round(c.x)},${Math.round(c.y)}]`).join(' ')));
+
+    const hits = [];
+    for (let a = 0; a < cards.length; a++) {
+      for (let b = a + 1; b < cards.length; b++) {
+        const A = cards[a], B = cards[b];
+        if (overlap({ x1: A.x, y1: A.y, x2: A.x + A.w, y2: A.y + A.h },
+          { x1: B.x, y1: B.y, x2: B.x + B.w, y2: B.y + B.h })) hits.push(`#${A.idx}×#${B.idx}`);
+      }
+    }
+    line.checks.push(check(hits.length === 0, '卡片两两不重叠', hits.join(' ')));
+
+    let minGapX = Infinity, minGapY = Infinity;
+    for (const r of rowIdx) {
+      const rs = cards.filter(c => rowOf(c) === r).slice().sort((a, b) => a.x - b.x);
+      for (let i = 1; i < rs.length; i++) {
+        minGapX = Math.min(minGapX, rs[i].x - (rs[i - 1].x + rs[i - 1].w));
+      }
+    }
+    for (let i = 1; i < rowIdx.length; i++) {
+      const up = cards.filter(c => rowOf(c) === rowIdx[i - 1])[0];
+      const dn = cards.filter(c => rowOf(c) === rowIdx[i])[0];
+      minGapY = Math.min(minGapY, dn.y - (up.y + up.h));
+    }
+    line.checks.push(check(minGapX >= S(6) - EPS && minGapY >= S(6) - EPS, '同行/两行之间留了呼吸位',
+      `横向 ${minGapX.toFixed(0)}px 纵向 ${minGapY.toFixed(0)}px`));
+
+    // 卡宽：两字卡名 + 两侧 S(12) 呼吸位；同时不许退回到「一行 9 张」时的 72
+    const nameNeed = estW('炎爆', F(15)) + S(12);
+    line.checks.push(check(cards[0].w >= nameNeed, '卡宽容得下 2 字卡名（S(15) 字号）',
+      `卡宽 ${cards[0].w} vs 需要 ${nameNeed.toFixed(0)}`));
+    line.checks.push(check(cards[0].w >= 120, '卡宽够摆原神元素图标（不再挤）', `${cards[0].w}px`));
+
+    // 卡内竖向：图标 S(26)（半径 S(15)）→ 卡名 S(58) → 副标题 S(84），都要在 h 里
+    const iconBot = S(26) + S(15);
+    const nameTop = S(58) - F(15) / 2, nameBot = S(58) + F(15) / 2;
+    const subTop = S(84) - F(12) / 2, subBot = S(84) + F(12) / 2;
+    line.checks.push(check(nameTop >= iconBot - EPS, '卡名不与图标叠',
+      `卡名顶 ${nameTop.toFixed(0)} vs 图标底 ${iconBot}`));
+    line.checks.push(check(subTop >= nameBot - EPS, '副标题不与卡名叠',
+      `副标题顶 ${subTop.toFixed(0)} vs 卡名底 ${nameBot.toFixed(0)}`));
+    line.checks.push(check(subBot <= cards[0].h - S(4) + EPS, '副标题在卡片内',
+      `副标题底 ${subBot.toFixed(0)} vs 卡高 ${cards[0].h}`));
 
     // 7c) 四个整屏版式必须落在屏内
     const pages = [
@@ -364,21 +457,23 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
     line.checks.push(check(s >= sBase * 0.95, '安全区吃掉不超过 5% 的缩放',
       `缩放 ${s.toFixed(4)} vs 无安全区基准 ${sBase.toFixed(4)}`));
 
-    // 11) 浏览器路径 · 中档坐标锁：中档是全工程的基准，必须逐像素稳定。
-    //     这几个数是「加入三档字号」之后的当前值；改动布局时若无意动了别的东西，
-    //     这里会立刻报出来。其他档位不锁（它们本来就该随档位变化）。
+    /* 11) 浏览器路径 · 中档坐标锁：中档是全工程的基准，必须逐像素稳定。
+     *      这几个数是「卡片改成两行」之后的当前值（建造栏 164 → 236，卡宽 72 → 129）；
+     *      改动布局时若无意动了别的东西，这里会立刻报出来。 */
     if (!env.wx && lv === 1) {
       const LOCK = {
         title: 36, sub: 74, hpLabel: 106, ecLabel: 164,
         hpBarY: 122, ecBarY: 180, waveBtnY: 218, soundY: 18,
-        hudRight: 566, contentTop: 296, boardY: 390, barY: 1394, designH: 1558
+        hudRight: 566, contentTop: 296, boardY: 354, barY: 1322, designH: 1558,
+        barH: 236, cardW: 129, cardH: 104
       };
       const now = {
         title: H.title, sub: H.sub, hpLabel: H.hpLabel, ecLabel: H.ecLabel,
         hpBarY: LAY.hpBar.y, ecBarY: LAY.ecBar.y, waveBtnY: H.waveBtn.y,
         soundY: LAY.soundBtn.y, hudRight: H.hudRight, contentTop: LAY.contentTop,
         boardY: Math.round(LAY.boardY), barY: Math.round(LAY.barY),
-        designH: Math.round(R.designH)
+        designH: Math.round(R.designH),
+        barH: LAY.barH, cardW: LAY.cards[0].w, cardH: LAY.cards[0].h
       };
       const diff = Object.keys(LOCK).filter(k2 => now[k2] !== LOCK[k2]);
       line.checks.push(check(diff.length === 0, '中档浏览器路径逐像素不变（坐标锁）',

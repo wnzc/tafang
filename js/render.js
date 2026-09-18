@@ -51,121 +51,12 @@
     }
   }
 
-  /* 七元素图标：几何近似原神元素符号，自包含上色（调用处不再 fill）。
-   * 火焰/水滴/雷/岩/草为填充形，冰/风为线条形——都用单一颜色，缩到多小都认得出。 */
-  function elemIcon(ctx, elem, cx, cy, r) {
-    var el = CFG.ELEM[elem];
-    var col = el ? el.color : '#9fd8ff';
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.fillStyle = col;
-    ctx.strokeStyle = col;
-
-    if (elem === 'pyro') {
-      // 火焰：上尖下圆的火苗，内部再挖一个小火苗的暗芯
-      ctx.beginPath();
-      ctx.moveTo(0, -r);
-      ctx.bezierCurveTo(r * 0.9, -r * 0.2, r * 0.72, r * 0.6, 0, r);
-      ctx.bezierCurveTo(-r * 0.72, r * 0.6, -r * 0.9, -r * 0.2, 0, -r);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = 'rgba(4,8,18,0.55)';
-      ctx.beginPath();
-      ctx.moveTo(0, r * 0.62);
-      ctx.bezierCurveTo(r * 0.42, r * 0.28, r * 0.28, -r * 0.12, 0, -r * 0.38);
-      ctx.bezierCurveTo(-r * 0.28, -r * 0.12, -r * 0.42, r * 0.28, 0, r * 0.62);
-      ctx.closePath();
-      ctx.fill();
-
-    } else if (elem === 'hydro') {
-      // 水滴：上尖下圆
-      ctx.beginPath();
-      ctx.moveTo(0, -r);
-      ctx.bezierCurveTo(r * 0.95, r * 0.12, r * 0.6, r, 0, r);
-      ctx.bezierCurveTo(-r * 0.6, r, -r * 0.95, r * 0.12, 0, -r);
-      ctx.closePath();
-      ctx.fill();
-
-    } else if (elem === 'cryo') {
-      // 冰晶：六向雪花，每根辐条带一对雪枝
-      ctx.lineWidth = Math.max(1.3, r * 0.16);
-      ctx.lineCap = 'round';
-      for (var i = 0; i < 6; i++) {
-        var a = i * Math.PI / 3;
-        var ca = Math.cos(a), sa = Math.sin(a);
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.lineTo(ca * r, sa * r);
-        ctx.stroke();
-        var bx = ca * r * 0.55, by = sa * r * 0.55;
-        for (var s = -1; s <= 1; s += 2) {
-          var ba = a + s * 0.95;
-          ctx.beginPath();
-          ctx.moveTo(bx, by);
-          ctx.lineTo(bx + Math.cos(ba) * r * 0.3, by + Math.sin(ba) * r * 0.3);
-          ctx.stroke();
-        }
-      }
-
-    } else if (elem === 'electro') {
-      // 雷：闪电折线多边形
-      ctx.beginPath();
-      ctx.moveTo(r * 0.28, -r);
-      ctx.lineTo(-r * 0.42, r * 0.08);
-      ctx.lineTo(-r * 0.02, r * 0.08);
-      ctx.lineTo(-r * 0.28, r);
-      ctx.lineTo(r * 0.46, -r * 0.14);
-      ctx.lineTo(r * 0.04, -r * 0.14);
-      ctx.closePath();
-      ctx.fill();
-
-    } else if (elem === 'anemo') {
-      // 风：三段旋臂组成的涡旋
-      ctx.lineWidth = Math.max(1.5, r * 0.2);
-      ctx.lineCap = 'round';
-      for (var k = 0; k < 3; k++) {
-        var a0 = k * Math.PI * 2 / 3;
-        ctx.beginPath();
-        ctx.arc(Math.cos(a0) * r * 0.42, Math.sin(a0) * r * 0.42,
-          r * 0.56, a0 + Math.PI * 0.75, a0 + Math.PI * 1.85);
-        ctx.stroke();
-      }
-
-    } else if (elem === 'geo') {
-      // 岩：外菱形 + 内菱形暗芯，宝石感
-      ctx.beginPath();
-      ctx.moveTo(0, -r);
-      ctx.lineTo(r * 0.72, 0);
-      ctx.lineTo(0, r);
-      ctx.lineTo(-r * 0.72, 0);
-      ctx.closePath();
-      ctx.fill();
-      ctx.fillStyle = 'rgba(4,8,18,0.5)';
-      ctx.beginPath();
-      ctx.moveTo(0, -r * 0.48);
-      ctx.lineTo(r * 0.34, 0);
-      ctx.lineTo(0, r * 0.48);
-      ctx.lineTo(-r * 0.34, 0);
-      ctx.closePath();
-      ctx.fill();
-
-    } else {
-      // 草：斜放的叶片 + 中脉
-      ctx.rotate(0.72);
-      ctx.beginPath();
-      ctx.moveTo(0, -r);
-      ctx.quadraticCurveTo(r * 0.88, -r * 0.22, 0, r);
-      ctx.quadraticCurveTo(-r * 0.88, -r * 0.22, 0, -r);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(4,8,18,0.5)';
-      ctx.lineWidth = Math.max(1.1, r * 0.14);
-      ctx.beginPath();
-      ctx.moveTo(0, -r * 0.62);
-      ctx.lineTo(0, r * 0.68);
-      ctx.stroke();
-    }
-    ctx.restore();
+  /* 七元素图标：直接用原神官方元素图标的矢量数据（见 js/icons.js），
+   * 不再自己描形状——自己画的「像不像」永远是个问题。
+   * 着色也交给 G.Icons.draw（缺省取元素色），调用处不用管 fillStyle。
+   * 传 color 可覆盖（例如塔身核心要压浅色保证对比度）。 */
+  function elemIcon(ctx, elem, cx, cy, r, color) {
+    return !!(G.Icons && G.Icons.draw(ctx, elem, cx, cy, r, color));
   }
 
   /* ------------------------------------------------------------------ */
@@ -633,15 +524,11 @@
     ctx.moveTo(9 - back, 0);
     ctx.lineTo(23 - back, 0);
     ctx.stroke();
-    // 管口：七种元素七种小形状（半径收到 5 上下——图标要小，不抢格子的戏）
+    // 管口：统一小圆头。元素身份交给塔身核心的原神图标去表达，
+    // 这里再画一套自创符号只会和真图标打架（两套符号看着都不像）。
     ctx.translate(29 - back, 0);
-    if (t.elem === 'pyro') U.poly(ctx, 0, 0, 5.2, 3, 0);
-    else if (t.elem === 'hydro') U.poly(ctx, 0, 0, 5.6, 4, Math.PI / 4);
-    else if (t.elem === 'cryo') { U.poly(ctx, 0, 0, 5.6, 4, Math.PI / 4); U.poly(ctx, 0, 0, 3.2, 4, 0); }
-    else if (t.elem === 'electro') U.star(ctx, 0, 0, 5.8, 3, 4, 0);
-    else if (t.elem === 'anemo') { ctx.beginPath(); ctx.arc(0, 0, 5, 0.6, 5.2); ctx.stroke(); }
-    else if (t.elem === 'geo') U.poly(ctx, 0, 0, 5.4, 4, 0);
-    else U.poly(ctx, 0, 0, 5.4, 3, Math.PI / 2);
+    ctx.beginPath();
+    ctx.arc(0, 0, 5.2, 0, Math.PI * 2);
     ctx.fillStyle = U.hexToRgba(soft, sup ? 0.5 : 0.95);
     ctx.fill();
     ctx.strokeStyle = 'rgba(4,6,13,0.9)';
@@ -649,16 +536,17 @@
     ctx.stroke();
     ctx.restore();
 
-    // 6) 中心核心（缩一档，给格子留白）
+    // 6) 中心核心：原神元素图标就是这座塔的身份证。
+    //    底下垫一圈元素色暗盘，图标才在深色底盘上站得住。
     var pul = 0.5 + 0.5 * Math.sin(t0 * 4 + seed);
     ctx.beginPath();
-    ctx.arc(x, y, 5.6 + pul * 0.9, 0, Math.PI * 2);
-    ctx.fillStyle = sup ? '#5c6679' : U.hexToRgba(col, 0.9);
+    ctx.arc(x, y, S(9.5) + pul * 0.7, 0, Math.PI * 2);
+    ctx.fillStyle = sup ? 'rgba(92,102,121,0.9)' : U.hexToRgba(col, 0.22);
     ctx.fill();
-    ctx.beginPath();
-    ctx.arc(x, y, 2.6, 0, Math.PI * 2);
-    ctx.fillStyle = sup ? '#8b95a8' : '#ffffff';
-    ctx.fill();
+    ctx.strokeStyle = U.hexToRgba(sup ? '#98a3ba' : col, 0.5);
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    elemIcon(ctx, t.elem, x, y, S(7), sup ? '#8b95a8' : soft);
 
     // 7) 等级刻度
     var maxLv = CFG.MAX_LEVEL, pw = 5, pg = 2.5;
@@ -980,35 +868,43 @@
     ctx.lineWidth = active ? 2.5 : 1.5;
     ctx.stroke();
 
-    // 图标：9 卡一屏后卡宽只有 72，图标同步缩一档（elemIcon 自带颜色）
-    var icx = r.x + r.w / 2, icy = r.y + S(30);
+    /* 卡片内容：图标在中上、卡名居中、副标题（价格/状态）在下。
+     * 两行铺开之后卡宽有 129（原来一行 9 张只有 72），所以图标能放到 S(15)，
+     * 原神元素图标的细节这时候才看得出来。三行的 y 与卡高 S(104) 是一套数，
+     * 改一个就得同步改 config.js 里的 cardH，并跑 layout-check 复核。 */
+    var icx = r.x + r.w / 2, icy = r.y + S(26);
     if (kind.type === 'tower') {
-      elemIcon(ctx, CFG.TOWERS[kind.key].elem, icx, icy, S(12));
+      elemIcon(ctx, CFG.TOWERS[kind.key].elem, icx, icy, S(15));
     } else if (kind.type === 'pulse') {
       ctx.strokeStyle = col; ctx.lineWidth = 2.4;
       for (var k = 0; k < 3; k++) {
         ctx.beginPath();
-        ctx.arc(icx, icy, S(7) + k * S(5), 0, Math.PI * 2);
+        ctx.arc(icx, icy, S(5) + k * S(4), 0, Math.PI * 2);
         ctx.stroke();
       }
     } else {
       var p = game.echo / CFG.ECHO.max;
-      U.roundRect(ctx, icx - S(17), icy - S(13), S(34), S(26), S(7));
+      var bx = icx - S(17), by = icy - S(15), bw = S(34), bh = S(30), br = S(8);
+      U.roundRect(ctx, bx, by, bw, bh, br);
       ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fill();
-      ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
+      /* 充能进度 = 图标框的边框本身：按圆角矩形周长比例画实线，
+       * 剩下的用虚线间隔藏起来。卡片顶边只剩 S(9) 余量，
+       * 横条会顶到图标框上（挤），这样画完全不额外占地方。 */
+      var per = 2 * (bw + bh) - 8 * br + 2 * Math.PI * br;
+      ctx.strokeStyle = col;
+      ctx.lineWidth = 2;
+      var dash = (typeof ctx.setLineDash === 'function');
+      if (dash) ctx.setLineDash([per * U.clamp(p, 0, 1), per]);
+      U.roundRect(ctx, bx, by, bw, bh, br);
+      ctx.stroke();
+      if (dash) ctx.setLineDash([]);
       U.poly(ctx, icx, icy, S(8), 3, -Math.PI / 2);
       ctx.fillStyle = col; ctx.fill();
-      // 充能进度挪到卡片顶边：副标题下面已经排不下第二条了
-      if (p < 1) {
-        U.roundRect(ctx, r.x + S(10), r.y + S(10), (r.w - S(20)) * p, S(6), S(3));
-        ctx.fillStyle = 'rgba(143,230,255,0.8)';
-        ctx.fill();
-      }
     }
 
-    txt(ctx, title, r.x + r.w / 2, r.y + S(68), 12, CFG.C.text, 'center', 'bold');
+    txt(ctx, title, r.x + r.w / 2, r.y + S(58), 15, CFG.C.text, 'center', 'bold');
     txt(ctx, kind.type === 'echo' ? (disabled ? '未充能' : '就绪') : '◈ ' + sub,
-      r.x + r.w / 2, r.y + S(94), 12, disabled ? CFG.C.dim : '#ffd27a', 'center', kind.type === 'echo' ? '' : 'bold');
+      r.x + r.w / 2, r.y + S(84), 12, disabled ? CFG.C.dim : '#ffd27a', 'center', kind.type === 'echo' ? '' : 'bold');
     ctx.globalAlpha = 1;
   }
 

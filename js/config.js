@@ -13,7 +13,8 @@
   CFG.BX = 40;                       // 棋盘左上角 x
   CFG.TOP_Y = 268;                   // HUD 区高度
   CFG.BOARD_H = CFG.ROWS * CFG.CELL; // 832
-  CFG.BAR_H = 164;                   // 底部建造栏高度
+  /* 底部建造栏的高度不在这里定：它由卡片的两行版式算出来（见 buildLayout），
+   * 改卡片行数/高度时只需动那一处。 */
   CFG.BOARD_W = CFG.COLS * CFG.CELL;
 
   /** 核心占据的格子（终点） */
@@ -372,7 +373,13 @@
       hud.waveBtn.y = Math.max(hud.waveBtn.y, rightColTop + S(186));
     }
 
-    var barH = S(CFG.BAR_H);
+    /* 建造栏高度不再是常数：它由「卡片几行 × 多高」决定（见下面的卡片段）。
+     * 两行之后栏高 236，比原来的一行 164 高 72 —— 但卡宽从 72 翻到 129、
+     * 图标从 12 涨到 15，卡片里的元素图标才第一次看得清。
+     * 卡高 104 是量出来的：图标 S(26)±S(15) → 卡名 S(58) → 副标题 S(84)，
+     * 三行字在三档字号下都不相压（S 与 F 两条曲线不同源，不能靠眼估）。 */
+    var gap = S(8), rowGap = S(8), cardPadTop = S(10), cardH = S(104);
+    var barH = cardPadTop * 2 + cardH * 2 + rowGap;
     var barY = designH - insetBottom - barH;
 
     // 棋盘起始 y：HUD 最后一行（开波按钮）下沿 + 呼吸位
@@ -387,14 +394,25 @@
     var boardY = contentTop +
       Math.max(0, (barY - contentTop - CFG.BOARD_H - RESERVE_BELOW) / 2);
 
-    /* 卡片宽度：一行 9 张（7 塔 + 脉冲 + 倒带）。棋盘宽度固定 696，
-     * 9 张后每张只能给到 72px，所以卡名全部改成两字（炎爆/澄流/…/脉冲/倒带），
-     * 卡片图标也缩小一档（见 drawCard）—— 这是「多塔一屏放下」的代价。 */
-    var cw = 72, gap = 4, n = CFG.TOWER_ORDER.length + 2;
-    var sx = Math.round((720 - (n * cw + (n - 1) * gap)) / 2);
+    /* 卡片：两行铺开（7 塔 + 脉冲 + 倒带 = 9 张）。
+     * 一行 9 张时卡宽只有 72，原神元素图标缩到 12 就成了糊点，「像不像」全看运气。
+     * 改 2 行 × 每行最多 5 张：卡宽 129、图标 16，末行不足 5 张就整行居中。
+     * 顺序照旧按 TOWER_ORDER 排，所以「塔在上、技能在下」是稳定的，
+     * 不会因为以后加塔把脉冲/倒带挤到第二行以外。 */
+    var n = CFG.TOWER_ORDER.length + 2;
+    var perRow = Math.ceil(n / 2);
+    var cw = Math.floor((696 - S(8) * 2 - (perRow - 1) * gap) / perRow);
     var cards = [];
     for (var i = 0; i < n; i++) {
-      cards.push({ x: sx + i * (cw + gap), y: barY + S(16), w: cw, h: S(132), idx: i });
+      var row = Math.floor(i / perRow);
+      var col = i - row * perRow;
+      var cnt = Math.min(perRow, n - row * perRow);       // 这一行实际几张
+      var sx = Math.round((720 - (cnt * cw + (cnt - 1) * gap)) / 2);
+      cards.push({
+        x: sx + col * (cw + gap),
+        y: barY + cardPadTop + row * (cardH + rowGap),
+        w: cw, h: cardH, idx: i, row: row
+      });
     }
 
     /* 菜单 / 设置 / 玩法 / 结算这类整屏版式：整块按内容高度垂直居中，

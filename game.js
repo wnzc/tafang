@@ -4,6 +4,7 @@
  */
 require('./js/runtime.js');
 require('./js/util.js');
+require('./js/icons.js');
 require('./js/audio.js');
 require('./js/config.js');
 require('./js/settings.js');
