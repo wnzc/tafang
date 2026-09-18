@@ -40,7 +40,7 @@ global.addEventListener = () => { };
 global.localStorage = { getItem: () => null, setItem: () => { } };
 
 /* ---------------------- 载入模块 ---------------------- */
-const files = ['runtime', 'util', 'icons', 'audio', 'config', 'grid', 'fx', 'enemies', 'monsters',
+const files = ['runtime', 'util', 'icons', 'audio', 'config', 'codex', 'grid', 'fx', 'enemies', 'monsters',
   'towers', 'resonance', 'waves', 'ui', 'render', 'main'];
 for (const f of files) require(path.join(__dirname, '..', 'js', f + '.js'));
 
@@ -62,6 +62,51 @@ try {
 } catch (e) {
   console.error('初始化失败:', e.stack);
   process.exit(1);
+}
+
+/* ---------------------- 首次遭遇弹窗：独立走一遍 ----------------------
+ * 弹窗会把 state 切到 'pop' 并**暂停战斗**，所以它不能混在主模拟里跑 ——
+ * 主模拟跑的是「老玩家」路径（下面的 markAllSeen），弹窗流程单独验：
+ *   ① 第一次遇到 → 入队 + 返回 true；再遇到同一只 → 返回 false（不重复打断）
+ *   ② 暂停是真的：弹窗期间推 60 帧，waveTime / prepT 一动不动
+ *   ③ 同帧遇到两只 → 关掉第一只后自动弹第二只，全关完回到战斗状态
+ *   ④ 弹窗的渲染路径也要跑一遍（那只怪物形象是临场造的假实体）
+ */
+{
+  const g = G.Game;
+  G.Codex.reset();
+  const a = G.Game.queueCodex('drifter');
+  const b = G.Game.queueCodex('sprinter');
+  const dup = G.Game.queueCodex('drifter');
+
+  g.state = 'wave';
+  g.waveTime = 12.5;
+  g.prepT = 7.5;
+  G.Game.openPop();                       // 主循环末尾也是这么开的
+  const st1 = g.state, key1 = g.popKey;
+  try { G.Render.draw(g); } catch (e) { report.errors.push('弹窗渲染: ' + e.stack); }
+  for (let i = 0; i < 60; i++) G.Game.update(1 / 60);
+  const paused = (g.waveTime === 12.5 && g.prepT === 7.5 && g.state === 'pop');
+
+  G.Game.closePop();
+  const st2 = g.state, key2 = g.popKey;
+  G.Game.closePop();
+  const st3 = g.state;
+
+  report.pop = {
+    newFirst: a, newSecond: b, dupBlocked: !dup,
+    first: st1 + '/' + key1, second: st2 + '/' + key2, after: st3, paused: paused
+  };
+  if (!(a && b && !dup && st1 === 'pop' && key1 === 'drifter' &&
+    st2 === 'pop' && key2 === 'sprinter' && st3 === 'wave' && paused)) {
+    report.errors.push('首次遭遇弹窗流程异常: ' + JSON.stringify(report.pop));
+  }
+
+  // 复原：主模拟按「怪全都见过」跑，否则第一只怪就会把它冻在暂停里
+  G.Codex.reset();
+  G.Codex.markAllSeen();
+  G.Game.reset();                  // 清 state / codexQueue / popKey
+  G.Game.startRun();               // 回到 prep，主循环照常从第 1 波开始（waveData 也在这里才有）
 }
 
 /* ---------------------- 简易 AI ---------------------- */
@@ -225,6 +270,7 @@ console.log('快照数量    :', g.snaps.length);
 console.log('特效帧数    :', G.FX.count(), ' 峰值', fxPeak, '(上限 ' + 1100 + ')');
 console.log('音频可用    :', G.Audio ? (G.Audio.available() ? '是' : '否（Node 环境，静默降级）') : '模块缺失');
 console.log('塔被摧毁    :', report.towerLost || 0, ' 次');
+console.log('图鉴弹窗    :', JSON.stringify(report.pop));
 
 if (report.errors.length) {
   console.log('\n[FAIL] 运行异常:');

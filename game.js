@@ -8,6 +8,7 @@ require('./js/icons.js');
 require('./js/audio.js');
 require('./js/config.js');
 require('./js/settings.js');
+require('./js/codex.js');
 require('./js/grid.js');
 require('./js/fx.js');
 require('./js/enemies.js');

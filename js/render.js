@@ -90,9 +90,13 @@
     G.FX.draw(ctx);
     ctx.restore();
 
-    var playing = (game.state === 'prep' || game.state === 'wave');
-    var paging = (game.state === 'menu' || game.state === 'set' || game.state === 'help');
-    // HUD 只在「打的时候」和结算时画；菜单/设置/玩法是整屏版式，不画 HUD
+    /* playing：底部建造栏、选中面板、提示照常画。
+     * 「首次遭遇」弹窗（pop）也走这里 —— 它是「被暂停的画面」，
+     * 玩家该看到完整的战场，弹窗只是叠在上面的一层。 */
+    var playing = (game.state === 'prep' || game.state === 'wave' || game.state === 'pop');
+    /* paging：整屏版式，连 HUD 都不画（图鉴页整块盖住屏幕，也在此列） */
+    var paging = (game.state === 'menu' || game.state === 'set' ||
+      game.state === 'help' || game.state === 'codex');
     if (!paging) drawHUD(ctx, game, LAY);
     if (playing) {
       drawBottomBar(ctx, game, LAY);
@@ -122,16 +126,21 @@
     if (game.state === 'menu') drawMenu(ctx, game, LAY);
     if (game.state === 'set') drawSet(ctx, game, LAY);
     if (game.state === 'help') drawHelp(ctx, game, LAY);
+    if (game.state === 'codex') drawCodex(ctx, game, LAY);
+    if (game.state === 'pop') drawMonsterPop(ctx, game, LAY);
     if (game.state === 'over') drawOver(ctx, game, LAY, false);
     if (game.state === 'win') drawOver(ctx, game, LAY, true);
 
     // 整屏版式也要能看到提示（比如切字号后的回执），
-    // 位置仍贴着建造栏顶边，所以不会压到版式内容
+    // 位置仍贴着建造栏顶边，所以不会压到版式内容。
+    // 图鉴与弹窗不画：那两页没有 toast 的落脚处，弹窗更是盖在一切之上。
     if (game.state === 'set' || game.state === 'help') drawToast(ctx, game, LAY);
 
-    // 音效快捷开关：游戏与菜单都能点；设置/玩法页不画 ——
-    // 大字号下它和玩法页的返回药丸会重叠（boot 自检抓到过），且设置页里已有音效开关
-    if (game.state !== 'set' && game.state !== 'help') drawSoundBtn(ctx, game, LAY);
+    // 音效快捷开关：游戏与菜单都能点；设置/玩法/图鉴/弹窗不画 ——
+    // 大字号下它会和这些页面自己的按钮挤在同一块地方
+    // （玩法页的返回药丸已经被 boot 自检抓到过一次），设置页里另有音效开关。
+    if (game.state !== 'set' && game.state !== 'help' &&
+      game.state !== 'codex' && game.state !== 'pop') drawSoundBtn(ctx, game, LAY);
   };
 
   /* ------------------------- 音效开关 ------------------------- */
@@ -1048,8 +1057,11 @@
     txt(ctx, G.UI.MENU_INTRO[1], 76, oy + S(258), 13, CFG.C.dim);
 
     mainBtn(ctx, G.UI.menuStart(), '开始防守', 26, game.time);
-    ghostBtn(ctx, G.UI.menuHelp(), '玩法说明', 18, '#5fc8ff');
-    ghostBtn(ctx, G.UI.menuSet(), '设置', 18, '#b06bff');
+    // 次级按钮统一遍历 UI.menuSubBtns()：漏画一个的 bug 从结构上就不可能再发生
+    var subs = G.UI.menuSubBtns();
+    for (var si = 0; si < subs.length; si++) {
+      ghostBtn(ctx, subs[si].rect, subs[si].label, 18, subs[si].color);
+    }
 
     txt(ctx, '最高分 ' + game.best, 360, oy + S(574), 14, CFG.C.dim, 'center');
     txt(ctx, '微信小游戏 · Canvas 2D 运行，无外部资源', 360, oy + S(612), 12, '#4b5c7d', 'center');
@@ -1201,6 +1213,282 @@
     ctx.lineWidth = 2.5;
     ctx.stroke();
     str(ctx, '再来一局', b.x + b.w / 2, b.y + b.h / 2, 24, '#e9f2ff', 'center', 'bold', 5);
+  }
+
+  /* ------------------------ 图鉴 / 首次遭遇 ------------------------ */
+
+  /** 图鉴里画怪物形象需要一个「实体」：Monsters.draw 只读这几个字段。
+   *  x/y 就是圆心、r 是想要的半径 —— 同一份形象代码在棋盘与图鉴里尺寸不同，
+   *  所以图鉴不必维护第二套形象。 */
+  function codexMonster(key, x, y, r) {
+    var d = CFG.ENEMIES[key];
+    return {
+      uid: 7, key: key, def: d, color: d.color, r: r, x: x, y: y,
+      fx: 0, fy: 1, hitFlash: 0, off: 5.5, phaseT: 0, mode: 'path'
+    };
+  }
+
+  /** 圆角面板 + 内部径向光晕 + 描边。
+   *  光晕必须 clip 到圆角内：不 clip 会把面板的四角与描边一起糊掉，
+   *  这种问题数字全合法，只有截图看得出来。 */
+  function glowPanel(ctx, rc, rad, baseFill, glowCol, strokeCol, lw) {
+    U.roundRect(ctx, rc.x, rc.y, rc.w, rc.h, rad);
+    ctx.fillStyle = baseFill;
+    ctx.fill();
+    if (glowCol) {
+      ctx.save();
+      U.roundRect(ctx, rc.x, rc.y, rc.w, rc.h, rad);
+      ctx.clip();
+      var gx = rc.x + rc.w / 2, gy = rc.y + rc.h * 0.34;
+      var g = ctx.createRadialGradient(gx, gy, 10, gx, gy, Math.max(rc.w, rc.h) * 0.5);
+      g.addColorStop(0, glowCol);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(rc.x, rc.y, rc.w, rc.h);
+      ctx.restore();
+    }
+    U.roundRect(ctx, rc.x, rc.y, rc.w, rc.h, rad);
+    ctx.strokeStyle = strokeCol;
+    ctx.lineWidth = lw || 2;
+    ctx.stroke();
+  }
+
+  /* —— 图鉴：整屏页 —— */
+  function drawCodex(ctx, game, LAY) {
+    pageBg(ctx, LAY);
+    var oy = LAY.codexTop;
+    var tab = game.codexTab === 1 ? 1 : 0;
+    var enemies = G.Codex.enemyKeys();
+    var towers = G.Codex.towerKeys();
+
+    str(ctx, '图鉴', 40, oy + S(46), 34, '#e9f2ff', 'left', 'bold', 6);
+    txt(ctx, tab === 0
+      ? 'C O D E X · 已遭遇 ' + G.Codex.seenCount() + ' / ' + enemies.length + ' 种'
+      : 'C O D E X · ' + towers.length + ' 座炮台与元素反应',
+      40, oy + S(86), 12, '#5fc8ff', 'left', 'bold');
+    ghostBtn(ctx, G.UI.codexBack(), '返回', 18, '#8fe6ff');
+
+    ctx.strokeStyle = 'rgba(120,164,255,0.18)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(40, oy + S(104));
+    ctx.lineTo(680, oy + S(104));
+    ctx.stroke();
+
+    var tabs = G.UI.codexTabs();
+    for (var i = 0; i < tabs.length; i++) {
+      var tr = tabs[i], on = (i === tab);
+      U.roundRect(ctx, tr.x, tr.y, tr.w, tr.h, S(16));
+      ctx.fillStyle = on ? 'rgba(95,200,255,0.18)' : 'rgba(255,255,255,0.03)';
+      ctx.fill();
+      ctx.strokeStyle = on ? 'rgba(143,230,255,0.8)' : 'rgba(140,160,190,0.25)';
+      ctx.lineWidth = on ? 2.4 : 1.5;
+      ctx.stroke();
+      txt(ctx, G.UI.CODEX_TABS[i], tr.x + tr.w / 2, tr.y + tr.h / 2, 18,
+        on ? '#cdefff' : '#8ba0c6', 'center', 'bold');
+    }
+
+    if (game.codexSel) {
+      if (tab === 0) drawCodexEnemyDetail(ctx, G.Codex.enemy(game.codexSel), game);
+      else drawCodexTowerDetail(ctx, G.Codex.tower(game.codexSel), game);
+      return;
+    }
+
+    var keys = (tab === 0) ? enemies : towers;
+    for (var k = 0; k < keys.length; k++) {
+      if (tab === 0) drawCodexEnemyCell(ctx, G.UI.codexCell(k), keys[k], game.time);
+      else drawCodexTowerCell(ctx, G.UI.codexCell(k), keys[k]);
+    }
+    txt(ctx, tab === 0 ? '点条目查看详情 · 未遭遇的显示三个问号'
+      : '点条目查看数值，以及它参与的全部元素反应',
+      360, G.UI.codexHint().y, 12, CFG.C.dim, 'center');
+  }
+
+  /* —— 图鉴：怪物格子（未遭遇 → 三个问号） —— */
+  function drawCodexEnemyCell(ctx, rc, key, t) {
+    var seen = G.Codex.isSeen(key);
+    var d = CFG.ENEMIES[key];
+    var cx = rc.x + rc.w / 2, icy = rc.y + S(88);
+    var col = seen ? d.color : '#5a6a8a';
+
+    glowPanel(ctx, rc, S(18), seen ? 'rgba(22,33,58,0.86)' : 'rgba(13,19,32,0.72)',
+      seen ? U.hexToRgba(d.color, 0.20) : null,
+      seen ? U.hexToRgba(d.color, 0.5) : 'rgba(120,164,255,0.16)', seen ? 2 : 1.5);
+
+    if (seen && G.Monsters) {
+      G.Monsters.draw(ctx, codexMonster(key, cx, icy + S(12), S(34)), t, 1);
+    } else {
+      // 未遭遇：一个大问号当「剪影」，不是把真身涂黑（涂黑会被认成已解锁）
+      txt(ctx, '?', cx, icy + S(4), 46, 'rgba(139,160,198,0.30)', 'center', 'bold');
+    }
+    txt(ctx, seen ? d.name : '? ? ?', cx, rc.y + S(168), 17,
+      seen ? CFG.C.text : '#6b7c9c', 'center', 'bold');
+    txt(ctx, seen ? G.Codex.enemy(key).role : '未遭遇',
+      cx, rc.y + S(196), 12, seen ? col : '#5a6a8a', 'center');
+  }
+
+  /* —— 图鉴：炮台格子 —— */
+  function drawCodexTowerCell(ctx, rc, key) {
+    var info = G.Codex.tower(key);
+    if (!info) return;
+    var cx = rc.x + rc.w / 2;
+    glowPanel(ctx, rc, S(18), 'rgba(22,33,58,0.86)', U.hexToRgba(info.color, 0.20),
+      U.hexToRgba(info.color, 0.5), 2);
+    elemIcon(ctx, info.elem, cx, rc.y + S(84), S(30), info.soft);
+    txt(ctx, info.name, cx, rc.y + S(168), 17, CFG.C.text, 'center', 'bold');
+    /* 副标题只写「造价 · 攻击方式」：格宽 204 在放大的字号档下容不下
+     * 「60 能量 · 连锁闪电」这种长串（layout-check 的「格宽容得下副标题」量着） */
+    txt(ctx, info.cost + ' · ' + info.kind, cx, rc.y + S(196), 12, CFG.C.dim, 'center');
+  }
+
+  /* —— 图鉴：怪物详情 —— */
+  function drawCodexEnemyDetail(ctx, info, game) {
+    if (!info) return;
+    var hero = G.UI.codexHero();
+    glowPanel(ctx, hero, S(20), 'rgba(15,23,41,0.92)', U.hexToRgba(info.color, 0.22),
+      U.hexToRgba(info.color, 0.42), 2);
+
+    var cx = hero.x + S(84), cy = hero.y + hero.h / 2;
+    if (G.Monsters) {
+      G.Monsters.draw(ctx, codexMonster(info.key, cx, cy + S(12), S(42)), game.time, 1);
+    }
+    txt(ctx, info.name, hero.x + S(172), hero.y + S(52), 26, '#e9f2ff', 'left', 'bold');
+    txt(ctx, info.role, hero.x + S(172), hero.y + S(96), 15, info.color, 'left', 'bold');
+    txt(ctx, info.tag, hero.x + S(172), hero.y + S(130), 12, CFG.C.dim);
+
+    drawCodexStats(ctx, [['生命', info.hp], ['速度', info.speed],
+      ['护甲', info.armor], ['赏金', info.reward]]);
+
+    var b = G.UI.codexBlock();
+    panel(ctx, b.x, b.y, b.w, b.h, 'rgba(15,23,41,0.9)');
+    txt(ctx, '特性', b.x + S(20), b.y + S(28), 16, CFG.C.text, 'left', 'bold');
+    for (var i = 0; i < info.lines.length; i++) {
+      txt(ctx, info.lines[i], b.x + S(20), b.y + S(58) + i * S(28), 12, CFG.C.dim);
+    }
+
+    ghostBtn(ctx, G.UI.codexDetailBack(), '返回列表', 18, '#8fe6ff');
+  }
+
+  /* —— 图鉴：炮台详情（含该元素参与的全部反应） —— */
+  function drawCodexTowerDetail(ctx, info, game) {
+    if (!info) return;
+    var hero = G.UI.codexHero();
+    glowPanel(ctx, hero, S(20), 'rgba(15,23,41,0.92)', U.hexToRgba(info.color, 0.22),
+      U.hexToRgba(info.color, 0.42), 2);
+
+    elemIcon(ctx, info.elem, hero.x + S(84), hero.y + hero.h / 2, S(40), info.soft);
+    txt(ctx, info.name, hero.x + S(172), hero.y + S(46), 26, '#e9f2ff', 'left', 'bold');
+    txt(ctx, info.elemName + '元素 · ' + info.kind,
+      hero.x + S(172), hero.y + S(88), 15, info.color, 'left', 'bold');
+    txt(ctx, info.cost + ' 能量 · ' + info.role, hero.x + S(172), hero.y + S(126), 12, CFG.C.dim);
+
+    drawCodexStats(ctx, [['伤害', info.dmg], ['射程', info.range],
+      ['攻速', info.rate.toFixed(2)], ['耐久', info.hp]]);
+
+    var b = G.UI.codexBlock();
+    panel(ctx, b.x, b.y, b.w, b.h, 'rgba(15,23,41,0.9)');
+    txt(ctx, '攻击方式', b.x + S(20), b.y + S(28), 16, CFG.C.text, 'left', 'bold');
+    for (var i = 0; i < info.lines.length; i++) {
+      txt(ctx, info.lines[i], b.x + S(20), b.y + S(58) + i * S(28), 12, CFG.C.dim);
+    }
+
+    var rb = G.UI.codexReactBlock();
+    panel(ctx, rb.x, rb.y, rb.w, rb.h, 'rgba(15,23,41,0.9)');
+    txt(ctx, '元素反应 · 对齐原神', rb.x + S(20), rb.y + S(28), 16, CFG.C.text, 'left', 'bold');
+
+    var rs = G.Codex.reactionsOf(info.elem);
+    var CO = G.UI.CODEX_REACT_COLS;
+    for (var k = 0; k < rs.length; k++) {
+      var row = G.UI.codexReactRow(k);
+      var ry = row.y + row.h / 2;
+      var on = rs[k].active;
+      var oc = CFG.ELEM[rs[k].otherElem];
+      /* 对手元素的图标：没上场的元素（比如留档的冰）画成灰的，
+       * 一眼能看出「这条反应现在打不出来」，而不是让人以为漏了。 */
+      elemIcon(ctx, rs[k].otherElem, row.x + S(CO.icon), ry, S(CO.side),
+        on ? oc.soft : 'rgba(140,160,190,0.5)');
+      txt(ctx, oc.name + ' ' + rs[k].name, row.x + S(CO.nameX), ry, 15,
+        on ? rs[k].color : '#6b7c9c', 'left', 'bold');
+      txt(ctx, rs[k].effect, row.x + S(CO.effectX), ry, 12, on ? CFG.C.dim : '#5a6a8a');
+      txt(ctx, on ? ('× ' + rs[k].otherTowerName) : '未上线',
+        rb.x + rb.w - S(16), ry, 12, on ? U.hexToRgba(rs[k].color, 0.95) : '#5a6a8a',
+        'right', on ? 'bold' : '');
+    }
+
+    ghostBtn(ctx, G.UI.codexDetailBack(), '返回列表', 18, '#8fe6ff');
+  }
+
+  /** 详情页与弹窗共用的数值格：一行四格，标签在上、数值在下 */
+  function drawCodexStats(ctx, stats) {
+    var cells = G.UI.codexStatCells();
+    for (var i = 0; i < cells.length && i < stats.length; i++) {
+      var c = cells[i];
+      U.roundRect(ctx, c.x + S(4), c.y, c.w - S(8), c.h, S(14));
+      ctx.fillStyle = 'rgba(15,23,41,0.9)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(120,164,255,0.16)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      txt(ctx, stats[i][0], c.x + c.w / 2, c.y + S(26), 12, CFG.C.dim, 'center');
+      txt(ctx, String(stats[i][1]), c.x + c.w / 2, c.y + S(54), 20, CFG.C.text, 'center', 'bold');
+    }
+  }
+
+  /* —— 首次遭遇：暂停下的弹窗 ——
+   * 战斗在这一刻是停的（main.js 的 update 在图鉴/弹窗状态直接早退），
+   * 但 game.time 照常走 —— 所以形象还在做动画：一个完全静止的弹窗
+   * 看起来像卡死了，动起来才像「暂停」。 */
+  function drawMonsterPop(ctx, game, LAY) {
+    var info = G.Codex ? G.Codex.enemy(game.popKey) : null;
+    if (!info) return;
+    var p = G.UI.popPanel();
+    var t = game.time;
+
+    // 遮罩：刻意留一点透，让玩家看到「战场还在，只是停了」
+    ctx.fillStyle = 'rgba(4,6,13,0.84)';
+    ctx.fillRect(0, 0, 720, LAY.designH);
+
+    var pulse = 0.5 + 0.5 * Math.sin(t * 2.6);
+    glowPanel(ctx, p, S(24), '#0d1526', U.hexToRgba(info.color, 0.20),
+      U.hexToRgba(info.color, 0.5 + pulse * 0.3), 2.5);
+
+    var L = G.UI.POP_LINES;
+    txt(ctx, '首 次 遭 遇', p.x + p.w / 2, p.y + S(L.title), 15, '#ffd27a', 'center', 'bold');
+    txt(ctx, info.name, p.x + p.w / 2, p.y + S(L.name), 26, '#e9f2ff', 'center', 'bold');
+    txt(ctx, info.role, p.x + p.w / 2, p.y + S(L.role), 13, info.color, 'center', 'bold');
+
+    /* 形象圆心直接取 UI.popFigure() 的结果 —— 那里已经按 CFG.MON_EXTENT
+     * 把「上躲定位行、下躲概括行」算进去了，不要在这里再补偏移。 */
+    var f = G.UI.popFigure();
+    if (G.Monsters) G.Monsters.draw(ctx, codexMonster(info.key, f.x, f.y, f.r), t, 1);
+
+    txt(ctx, info.tag, p.x + p.w / 2, p.y + S(L.tag), 13, CFG.C.text, 'center');
+
+    /* 弹窗里的数值格复用详情页那一套，但坐标要落在弹窗面板里 ——
+     * 所以这里临时按 popStatCells 画（与 detail 用的 codexStatCells 不同源）。 */
+    var cells = G.UI.popStatCells();
+    var stats = [['生命', info.hp], ['速度', info.speed],
+      ['护甲', info.armor], ['赏金', info.reward]];
+    for (var i = 0; i < cells.length && i < stats.length; i++) {
+      var c = cells[i];
+      U.roundRect(ctx, c.x + S(3), c.y, c.w - S(6), c.h, S(12));
+      ctx.fillStyle = 'rgba(20,30,50,0.9)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(120,164,255,0.16)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+      txt(ctx, stats[i][0], c.x + c.w / 2, c.y + S(26), 12, CFG.C.dim, 'center');
+      txt(ctx, String(stats[i][1]), c.x + c.w / 2, c.y + S(54), 20, CFG.C.text, 'center', 'bold');
+    }
+
+    var b = G.UI.popBlock();
+    panel(ctx, b.x, b.y, b.w, b.h, 'rgba(20,30,50,0.9)');
+    txt(ctx, '要点', b.x + S(18), b.y + S(28), 16, CFG.C.text, 'left', 'bold');
+    for (var k = 0; k < info.lines.length; k++) {
+      txt(ctx, info.lines[k], b.x + S(18), b.y + S(58) + k * S(28), 12, CFG.C.dim);
+    }
+
+    mainBtn(ctx, G.UI.popOk(), '继续', 22, t);
   }
 
 })(typeof GameGlobal !== 'undefined' ? GameGlobal

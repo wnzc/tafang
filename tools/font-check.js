@@ -38,7 +38,7 @@ const canvasStub = {
 };
 
 const JS_DIR = path.join(__dirname, '..', 'js');
-const FILES = ['runtime', 'util', 'icons', 'audio', 'config', 'settings', 'grid', 'fx', 'enemies', 'monsters',
+const FILES = ['runtime', 'util', 'icons', 'audio', 'config', 'settings', 'codex', 'grid', 'fx', 'enemies', 'monsters',
   'towers', 'resonance', 'waves', 'ui', 'render', 'main'];
 
 /* ---------------------- 断言工具 ---------------------- */
@@ -132,6 +132,12 @@ const STATES = [
   ['menu', Object.assign({}, base, { state: 'menu' })],
   ['set', Object.assign({}, base, { state: 'set', toastT: 1.0, toastMsg: '字体大小：大' })],
   ['help', Object.assign({}, base, { state: 'help' })],
+  /* 图鉴页与「首次遭遇」弹窗：新页面的字号最容易被漏在表外。
+   * 图鉴列表此时是「全新档」（Codex 读不到存储 → 全部未解锁），
+   * 所以这一条覆盖的是三个问号那一档；已解锁分支在下面的战斗段里补画。 */
+  ['codex', Object.assign({}, base, { state: 'codex', codexTab: 0, codexSel: null })],
+  ['codexTower', Object.assign({}, base, { state: 'codex', codexTab: 1, codexSel: 'electro' })],
+  ['pop', Object.assign({}, base, { state: 'pop', popKey: 'boss', codexSel: null })],
   ['over', Object.assign({}, base, { state: 'over', score: 12000, kills: 300, leaked: 4 })],
   ['win', Object.assign({}, base, { state: 'win', score: 20000, kills: 500, leaked: 0 })]
 ];
@@ -171,6 +177,15 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
     G.Game.energy = 415;
     G.Game.toast('能量不足');
     G.Game.sel = G.Game.towers.length ? G.Game.towers[0] : null;   // 塔面板
+    G.Render.draw(G.Game);
+    /* 图鉴的「已解锁」分支：上面 STATES 里的图鉴是全新档（三个问号），
+     * 怪物形象的格子与详情页要单独补画一次才录得到。 */
+    G.Codex.markAllSeen();
+    G.Game.state = 'codex';
+    G.Game.codexTab = 0;
+    G.Game.codexSel = 'drifter';
+    G.Render.draw(G.Game);
+    G.Game.codexSel = 'boss';
     G.Render.draw(G.Game);
     check(true, `「${LEVELS[lv].name}号」战斗 + 特效可正常绘制`);
   } catch (e) {

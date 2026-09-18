@@ -13,27 +13,69 @@
 'use strict';
 const path = require('path');
 
+/* ---------------------- 记账 ctx ----------------------
+ * 一个会跟着 save/restore/translate/scale/rotate 维护 CTM 的 ctx：
+ *   - ops 记下指令流（比对两个时刻是否真的在动）
+ *   - pts 记下变换后的落点（算包围盒 / 判断「这块到底画没画」）
+ * 两处用到：
+ *   ① GLOBAL_REC 当 canvas 桩的 ctx —— 跑一次 Render.draw 就能拿到整屏的落点；
+ *   ② makeRec() 拿一个独立的记账 ctx，单独量某只怪 / 某个控件的包围盒。
+ */
+function makeRecorder() {
+  const st = [];                                  // save / restore 栈
+  let m = [1, 0, 0, 1, 0, 0];                     // a,b,c,d,e,f：x' = ax+cy+e
+  const ops = [], pts = [];
+  const mul = n => {
+    const [a, b, c, d, e, f] = m;
+    m = [a * n[0] + c * n[1], b * n[0] + d * n[1], a * n[2] + c * n[3],
+      b * n[2] + d * n[3], a * n[4] + c * n[5] + e, b * n[4] + d * n[5] + f];
+  };
+  const add = (x, y) => pts.push([m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]);
+  const num = v => (typeof v === 'number' ? Math.round(v * 1000) / 1000 : v);
+
+  const fire = (k, a) => {
+    ops.push(k + ':' + Array.prototype.map.call(a, num).join(','));
+    if (k === 'translate') mul([1, 0, 0, 1, a[0], a[1]]);
+    else if (k === 'scale') mul([a[0], 0, 0, a[1], 0, 0]);
+    else if (k === 'rotate') { const c = Math.cos(a[0]), s = Math.sin(a[0]); mul([c, s, -s, c, 0, 0]); }
+    else if (k === 'save') st.push(m.slice());
+    else if (k === 'restore') { if (st.length) m = st.pop(); }
+    else if (k === 'moveTo' || k === 'lineTo') add(a[0], a[1]);
+    else if (k === 'quadraticCurveTo') { add(a[0], a[1]); add(a[2], a[3]); }
+    else if (k === 'bezierCurveTo') { add(a[0], a[1]); add(a[2], a[3]); add(a[4], a[5]); }
+    else if (k === 'arc') {
+      add(a[0] + Math.cos(a[3]) * a[2], a[1] + Math.sin(a[3]) * a[2]);
+      add(a[0] + Math.cos(a[4]) * a[2], a[1] + Math.sin(a[4]) * a[2]);
+      add(a[0], a[1]);
+    } else if (k === 'arcTo') { add(a[0], a[1]); add(a[2], a[3]); }
+  };
+
+  const ctx = new Proxy({}, {
+    get(t, k) {
+      if (k === 'measureText') return () => ({ width: 10 });
+      if (k === 'createLinearGradient' || k === 'createRadialGradient') return () => ({ addColorStop() { } });
+      if (k in t) return t[k];
+      return function () { fire(String(k), arguments); };
+    },
+    set(t, k, v) { t[k] = v; return true; }
+  });
+  return {
+    ctx, ops, pts,
+    reset() { ops.length = 0; pts.length = 0; st.length = 0; m = [1, 0, 0, 1, 0, 0]; }
+  };
+}
+function makeRec() { return makeRecorder(); }
+
 /* ---------------------- Canvas 桩 ---------------------- */
-const noopCache = {};
-const ctxStub = new Proxy({}, {
-  get(t, k) {
-    if (k === 'createLinearGradient' || k === 'createRadialGradient') {
-      return () => ({ addColorStop() { } });
-    }
-    if (k === 'measureText') return () => ({ width: 10 });
-    if (k in t) return t[k];
-    if (!(k in noopCache)) noopCache[k] = function () { };
-    return noopCache[k];
-  },
-  set(t, k, v) { t[k] = v; return true; }
-});
+const GLOBAL_REC = makeRecorder();
+const ctxStub = GLOBAL_REC.ctx;
 const canvasStub = {
   width: 0, height: 0, style: {},
   getContext: () => ctxStub,
   addEventListener: () => { }
 };
 
-const FILES = ['runtime', 'util', 'icons', 'audio', 'config', 'settings', 'grid', 'fx', 'enemies', 'monsters',
+const FILES = ['runtime', 'util', 'icons', 'audio', 'config', 'settings', 'codex', 'grid', 'fx', 'enemies', 'monsters',
   'towers', 'resonance', 'waves', 'ui', 'render', 'main'];
 
 /** 在全新的模块环境里跑一次 init()，可选指定字号档 */
@@ -125,11 +167,14 @@ const EPS = 0.6;              // 允许 0.6px 的取整误差
 let failures = 0;
 let checksTotal = 0;          // 含「机型 × 档位」之外的全局断言（图标、怪物形象）
 const rows = [];
+const allChecks = [];         // 每一条断言的结果都留一份
 
 function check(cond, label, detail) {
   checksTotal++;
-  if (!cond) { failures++; return { label, detail, ok: false }; }
-  return { label, ok: true };
+  const r = cond ? { label, ok: true } : { label, detail, ok: false };
+  if (!cond) failures++;
+  allChecks.push(r);
+  return r;
 }
 
 function overlap(a, b) {
@@ -145,6 +190,62 @@ function estW(s, px) {
     u += /[\u2e80-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch) ? 1 : 0.55;
   }
   return u * px;
+}
+
+/** 量一只怪在「半径 r、圆心 (cx,cy)」下画出来的包围盒（返回相对圆心的偏移） */
+function monBox(G, key, r, cx, cy, t) {
+  const rec = makeRec();
+  const def = G.CFG.ENEMIES[key];
+  G.Monsters.draw(rec.ctx, {
+    uid: 5, key: key, def: def, color: def.color, r: r, x: cx, y: cy,
+    fx: 0, fy: 1, hitFlash: 0, off: 4.2, phaseT: 0, mode: 'path'
+  }, t, 1);
+  let up = 0, down = 0, side = 0;
+  for (const p of rec.pts) {
+    up = Math.max(up, cy - p[1]);
+    down = Math.max(down, p[1] - cy);
+    side = Math.max(side, Math.abs(p[0] - cx));
+  }
+  return { up, down, side };
+}
+
+/* 量形象时取的动画相位。12 个而不是 4 个：部分怪（游荡体、首领）在做周期摆动，
+ * 隔 0.25 采样会正好跳过极值，而弹窗的纵向排布就是按极值定的。 */
+const PHASES = [];
+for (let ti = 0; ti < 12; ti++) PHASES.push(ti / 12);
+
+/* ---------------------- 0b) 菜单次级按钮「真的画出来了」 ----------------------
+ * 出过的事故：加「图鉴」时 ui.js 加了几何、main.js 接了点击，**render.js 忘了画** ——
+ * 按钮点得到却看不见。而当时所有几何断言、命中断言、图鉴数据断言**全是绿的**。
+ *
+ * 修法是三处共用 UI.menuSubBtns() 一张表（渲染遍历它画、命中遍历它判），
+ * 这条断言是给那张表上的保险：真跑一次 drawMenu，录下落点，逐个按钮验「这个矩形被描过」
+ * —— 「有几何、有命中、但没人画」这一类就再也藏不住。
+ */
+{
+  const G = load({ w: 390, h: 844 });
+  const subs = G.UI.menuSubBtns();
+  check(subs.length === 3, '菜单次级按钮正好三个（玩法 / 图鉴 / 设置）', String(subs.length));
+  check(subs.every(s => s.key && s.label && s.rect), '菜单次级按钮都带 key / label / rect', '');
+  check(subs.every(s => estW(s.label, G.CFG.FS(18)) + G.CFG.S(16) <= s.rect.w),
+    '菜单次级按钮的标签都装得进按钮',
+    subs.filter(s => estW(s.label, G.CFG.FS(18)) + G.CFG.S(16) > s.rect.w).map(s => s.label).join(', '));
+
+  G.Game.state = 'menu';
+  GLOBAL_REC.reset();
+  G.Render.draw(G.Game);
+  const pts = GLOBAL_REC.pts;
+  /* 判据用「矩形右下角这个精确坐标有没有被描过」，而不是「矩形范围内有没有落点」——
+   * 后者太松：整屏任何一条扫过的线都能蒙中，实测漏画「图鉴」时它照样通过。
+   * U.roundRect 会依次落到 (x+w, y+h) 这个角，它是这个按钮独有的坐标。 */
+  const undrawn = [];
+  for (const s of subs) {
+    const r = s.rect;
+    const hit = pts.some(p => Math.abs(p[0] - (r.x + r.w)) < 0.6 && Math.abs(p[1] - (r.y + r.h)) < 0.6);
+    if (!hit) undrawn.push(s.label);
+  }
+  check(pts.length > 0, '菜单这一帧确实画了东西（记账 ctx 接通了）', String(pts.length));
+  check(undrawn.length === 0, '菜单三个次级按钮都真的画了（不是只有几何和命中）', undrawn.join(', '));
 }
 
 const LEVELS = load({ w: 390, h: 844 }).CFG.FONT_LEVELS;
@@ -217,47 +318,6 @@ const LEVELS = load({ w: 390, h: 844 }).CFG.FONT_LEVELS;
 {
   const G = load({ w: 390, h: 844 });
 
-  function makeRec() {
-    const st = [];                                  // save / restore 栈
-    let m = [1, 0, 0, 1, 0, 0];                     // a,b,c,d,e,f：x' = ax+cy+e
-    const ops = [], pts = [];
-    const mul = n => {
-      const [a, b, c, d, e, f] = m;
-      m = [a * n[0] + c * n[1], b * n[0] + d * n[1], a * n[2] + c * n[3],
-        b * n[2] + d * n[3], a * n[4] + c * n[5] + e, b * n[4] + d * n[5] + f];
-    };
-    const add = (x, y) => pts.push([m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]]);
-    const num = v => (typeof v === 'number' ? Math.round(v * 1000) / 1000 : v);
-
-    const fire = (k, a) => {
-      ops.push(k + ':' + Array.prototype.map.call(a, num).join(','));
-      if (k === 'translate') mul([1, 0, 0, 1, a[0], a[1]]);
-      else if (k === 'scale') mul([a[0], 0, 0, a[1], 0, 0]);
-      else if (k === 'rotate') { const c = Math.cos(a[0]), s = Math.sin(a[0]); mul([c, s, -s, c, 0, 0]); }
-      else if (k === 'save') st.push(m.slice());
-      else if (k === 'restore') { if (st.length) m = st.pop(); }
-      else if (k === 'moveTo' || k === 'lineTo') add(a[0], a[1]);
-      else if (k === 'quadraticCurveTo') { add(a[0], a[1]); add(a[2], a[3]); }
-      else if (k === 'bezierCurveTo') { add(a[0], a[1]); add(a[2], a[3]); add(a[4], a[5]); }
-      else if (k === 'arc') {
-        add(a[0] + Math.cos(a[3]) * a[2], a[1] + Math.sin(a[3]) * a[2]);
-        add(a[0] + Math.cos(a[4]) * a[2], a[1] + Math.sin(a[4]) * a[2]);
-        add(a[0], a[1]);
-      } else if (k === 'arcTo') { add(a[0], a[1]); add(a[2], a[3]); }
-    };
-
-    const ctx = new Proxy({}, {
-      get(t, k) {
-        if (k === 'measureText') return () => ({ width: 10 });
-        if (k === 'createLinearGradient' || k === 'createRadialGradient') return () => ({ addColorStop() { } });
-        if (k in t) return t[k];
-        return function () { fire(String(k), arguments); };
-      },
-      set(t, k, v) { t[k] = v; return true; }
-    });
-    return { ctx, ops, pts };
-  }
-
   function sample(key, t) {
     const rec = makeRec();
     const def = G.CFG.ENEMIES[key];
@@ -301,8 +361,116 @@ const LEVELS = load({ w: 390, h: 844 }).CFG.FONT_LEVELS;
   check(spill.length === 0, '怪物形象不横向溢出（不压邻格）', spill.join(' | '));
   check(tiny.length === 0, '怪物形象没有退化成小点', tiny.join(', '));
   check(heavy.length === 0, '单只怪的绘制指令数在上限内（≤400）', heavy.join(', '));
+
+  /* 登记外扩：CFG.MON_EXTENT 是弹窗排布的依据（形象占多高、多宽）。
+   * 它是「实测值」而不是拍脑袋的常数 —— 所以这里反过来把实测结果跟登记值对一遍：
+   * 谁改了形象（加犄角、拔高耳朵）超出登记值，弹窗那几条断言不会失败，
+   * 但会在这里失败，报出到底是哪只怪超了。
+   * 相位取 12 个：只取 4 个会漏掉摆动的极值，而弹窗正是按极值排的。 */
+  const EXT = G.CFG.MON_EXTENT;
+  const extBad = [];
+  for (const key of keys) {
+    for (const t of PHASES) {
+      const box = monBox(G, key, 20, 0, 0, t);
+      if (box.up > EXT.up * 20 + 0.5 || box.down > EXT.down * 20 + 0.5 || box.side > EXT.side * 20 + 0.5) {
+        extBad.push(`${key}@${t.toFixed(2)} 上${(box.up / 20).toFixed(2)} 下${(box.down / 20).toFixed(2)} 侧${(box.side / 20).toFixed(2)}`);
+      }
+    }
+  }
+  check(extBad.length === 0, '形象实测外扩不超出 CFG.MON_EXTENT 登记值', extBad.join(' | '));
+
   console.log('');
   console.log('怪物形象指令数：' + report.join('  '));
+}
+
+
+/* ---------------------- 0c) 图鉴数据 ----------------------
+ * 图鉴是「文案 + 数值」两套东西拼起来的，最容易出的错是加了新怪/新塔
+ * 却忘了写档案 —— 表现是图鉴里那一格空白，而且要玩到那一波才发现。
+ * 所以这里把「齐全」「条数一致」「判定正确」逐条断掉。
+ */
+{
+  const G = load({ w: 390, h: 844 });
+  const C = G.Codex;
+
+  const enemies = C.enemyKeys();
+  const towers = C.towerKeys();
+  check(enemies.length === Object.keys(G.CFG.ENEMIES).length, '图鉴覆盖全部怪物',
+    `${enemies.length} vs ${Object.keys(G.CFG.ENEMIES).length}`);
+  check(towers.length === G.CFG.TOWER_ORDER.length, '图鉴覆盖全部上场炮台', '');
+
+  const noInfo = [];
+  for (const k of enemies) {
+    const info = C.enemy(k);
+    if (!info || !info.role || !info.tag || !info.lines.length) noInfo.push(k);
+    else if (info.lines.some(l => !l || l.length < 4)) noInfo.push(k + '(行太短)');
+  }
+  for (const k of towers) {
+    const info = C.tower(k);
+    if (!info || !info.role || !info.lines.length) noInfo.push(k);
+    else if (info.lines.some(l => !l || l.length < 4)) noInfo.push(k + '(行太短)');
+  }
+  check(noInfo.length === 0, '每个图鉴条目都有定位与特性文案', noInfo.join(', '));
+
+  // 攻击方式标签要覆盖所有上场塔用到的 kind（漏了会显示成 bolt / chain 这种英文键名）
+  const kindBad = towers.filter(k => !C.KIND_NAME[G.CFG.TOWERS[k].kind]);
+  check(kindBad.length === 0, '每种攻击方式都有中文标签', kindBad.join(', '));
+
+  // 反应效果文案：新增 kind 忘了写文案，图鉴里那一行会是空的
+  const noEffect = [];
+  for (const key in G.CFG.RES.reactions) {
+    if (!G.CFG.RES.reactions.hasOwnProperty(key)) continue;
+    if (!C.effectText(G.CFG.RES.reactions[key])) noEffect.push(key);
+  }
+  check(noEffect.length === 0, '每条反应都有可读的效果文案', noEffect.join(', '));
+
+  /* reactionsOf：条数必须等于该元素在反应表里出现的次数；
+   * active 必须严格等于「对手元素有上场塔」——当前实情是涉及冰的那几条
+   * 对每座塔都标「未上线」，图鉴里会显示成灰的，这是有意的。 */
+  const elemsInUse = {};
+  for (const k of towers) elemsInUse[G.CFG.TOWERS[k].elem] = true;
+  const cntBad = [], actBad = [];
+  let totalRows = 0;
+  for (const k of towers) {
+    const el = G.CFG.TOWERS[k].elem;
+    const rs = C.reactionsOf(el);
+    let expect = 0;
+    for (const key in G.CFG.RES.reactions) {
+      if (!G.CFG.RES.reactions.hasOwnProperty(key)) continue;
+      const p = key.split('|');
+      if (p[0] === el || p[1] === el) expect++;
+    }
+    if (rs.length !== expect) cntBad.push(`${k}: ${rs.length} vs ${expect}`);
+    totalRows += rs.length;
+    for (const r of rs) {
+      if (r.active !== !!elemsInUse[r.otherElem]) actBad.push(`${k}/${r.name}/${r.otherElem}`);
+    }
+  }
+  check(cntBad.length === 0, '每个元素的反应条数与反应表一致', cntBad.join(' | '));
+  check(actBad.length === 0, '反应的「已上线」判定跟随上场塔', actBad.join(' | '));
+  const thinReact = towers.filter(k => C.reactionsOf(G.CFG.TOWERS[k].elem).length < 3);
+  check(thinReact.length === 0, '每个上场元素至少参与 3 条反应', thinReact.join(', '));
+
+  // 解锁记录：只认已知的怪、幂等、reset 能清
+  C.reset();
+  const first = C.markSeen('drifter');
+  const again = C.markSeen('drifter');
+  const bogus = C.markSeen('not_an_enemy');
+  const cnt1 = C.seenCount();
+  C.markAllSeen();
+  const cntAll = C.seenCount();
+  C.reset();
+  const cnt0 = C.seenCount();
+  check(first === true, '第一次遭遇返回 true（据此触发弹窗）');
+  check(again === false, '同一只怪第二次不再触发弹窗');
+  check(bogus === false, '不认识的怪不会写进图鉴记录');
+  check(cnt1 === 1, '已遭遇计数正确', String(cnt1));
+  check(cntAll === enemies.length, 'markAllSeen 全解锁', `${cntAll} vs ${enemies.length}`);
+  check(cnt0 === 0, 'reset 能清空记录', String(cnt0));
+  check(C.isSeen('drifter') === false, 'reset 后确实回到未遭遇');
+  console.log('');
+  console.log('图鉴：怪物 ' + enemies.length + ' 种 / 炮台 ' + towers.length +
+    ' 座，反应行合计 ' + totalRows + ' 条');
 }
 
 
@@ -462,11 +630,13 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
     line.checks.push(check(subBot <= cards[0].h - S(4) + EPS, '副标题在卡片内',
       `副标题底 ${subBot.toFixed(0)} vs 卡高 ${cards[0].h}`));
 
-    // 7c) 四个整屏版式必须落在屏内
+    // 7c) 六个整屏版式必须落在屏内
     const pages = [
       ['菜单', LAY.menuTop, LAY.menuH],
       ['设置', LAY.setTop, LAY.setH],
       ['玩法', LAY.helpTop, LAY.helpH],
+      ['图鉴', LAY.codexTop, LAY.codexH],
+      ['弹窗', LAY.popTop, LAY.popH],
       ['结算', LAY.overTop, LAY.overH]
     ];
     for (const [nm, top, h] of pages) {
@@ -535,12 +705,24 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
       pv.x + pv.w - S(24) - estW(UI.SET_PREVIEW_RIGHT + '大', F(13)),
       '预览条左右两段不叠字', ''));
 
-    // 7f) 菜单：介绍面板内的两行不压边，按钮与文字不叠
+    // 7f) 菜单：介绍面板内的两行不压边，三个次级按钮（玩法/图鉴/设置）不叠
     const introTop = LAY.menuTop + S(176), introBot = introTop + S(116);
     line.checks.push(check(LAY.menuTop + S(214) - F(16) / 2 >= introTop, '菜单介绍首行在面板内', ''));
     line.checks.push(check(LAY.menuTop + S(258) + F(13) / 2 <= introBot, '菜单介绍次行在面板内', ''));
-    const ms = UI.menuStart(), mh = UI.menuHelp(), mst = UI.menuSet();
-    line.checks.push(check(mh.x + mh.w <= mst.x, '菜单两个次按钮不重叠', ''));
+    const ms = UI.menuStart(), mh = UI.menuHelp(), mc = UI.menuCodex(), mst = UI.menuSet();
+    const subs = [mh, mc, mst];
+    let subHit = 0;
+    for (let a = 0; a < subs.length; a++) {
+      for (let b = a + 1; b < subs.length; b++) {
+        if (overlap({ x1: subs[a].x, y1: subs[a].y, x2: subs[a].x + subs[a].w, y2: subs[a].y + subs[a].h },
+          { x1: subs[b].x, y1: subs[b].y, x2: subs[b].x + subs[b].w, y2: subs[b].y + subs[b].h })) subHit++;
+      }
+    }
+    line.checks.push(check(subHit === 0, '菜单三个次按钮不重叠', String(subHit)));
+    line.checks.push(check(subs[0].x >= 40 - EPS && subs[2].x + subs[2].w <= 680 + EPS,
+      '菜单次按钮在屏内且与介绍面板对齐',
+      `[${subs[0].x}, ${subs[2].x + subs[2].w}]`));
+    line.checks.push(check(estW('图鉴', F(18)) + S(16) <= mc.w, '菜单次按钮容得下两字标签', ''));
     line.checks.push(check(ms.y + ms.h + S(8) <= mh.y, '菜单次按钮在主按钮之下', ''));
     line.checks.push(check(LAY.menuTop + S(574) - F(14) / 2 >= mh.y + mh.h, '菜单最高分在按钮之下', ''));
     const menuTxt = UI.MENU_INTRO[0] + UI.MENU_INTRO[1];
@@ -557,6 +739,168 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
       CFG.CELL / 2 - S(48) + F(13) / 2;
     line.checks.push(check(toastTop >= coreLabelBottom, '浮动提示不压「核心」标签',
       `提示顶 ${toastTop} vs 标签底 ${coreLabelBottom}`));
+
+    /* 7h) 图鉴页：Tab 条 → 内容区（列表网格 / 详情）→ 详情才有的「返回列表」。
+     *     图鉴是新页面，最容易出的两种错：格子铺到屏外、
+     *     详情里的长文案顶到右边框 —— 后者只有按估算字宽量才看得出来。 */
+    const tabsR = UI.codexTabs();
+    line.checks.push(check(tabsR.length === UI.CODEX_TABS.length, '图鉴 Tab 数量与文案一致', ''));
+    let tabHit = 0, tabOut = 0;
+    for (let i = 0; i < tabsR.length; i++) {
+      if (tabsR[i].x < 40 - EPS || tabsR[i].x + tabsR[i].w > 680 + EPS) tabOut++;
+      if (i > 0 && tabsR[i].x < tabsR[i - 1].x + tabsR[i - 1].w) tabHit++;
+    }
+    line.checks.push(check(tabOut === 0, '图鉴 Tab 在屏内', ''));
+    line.checks.push(check(tabHit === 0, '图鉴 Tab 不重叠', ''));
+    line.checks.push(check(tabsR[0].y >= LAY.codexTop + S(104) + 4, '图鉴 Tab 在页头分隔线之下', ''));
+    line.checks.push(check(tabsR[0].y + tabsR[0].h <= LAY.codexTop + S(UI.CODEX_BODY_Y), '图鉴 Tab 在内容区之上', ''));
+
+    const allEnemies = G.Codex.enemyKeys(), allTowers = G.Codex.towerKeys();
+    const NC = UI.CODEX_COLS * UI.CODEX_ROWS;
+    const cellsR = [];
+    for (let i = 0; i < NC; i++) cellsR.push(UI.codexCell(i));
+    line.checks.push(check(cellsR[0].x >= 40 - EPS && cellsR[NC - 1].x + cellsR[NC - 1].w <= 680 + EPS,
+      '图鉴格子横向在屏内', `[${cellsR[0].x}, ${cellsR[NC - 1].x + cellsR[NC - 1].w}]`));
+    let cellHit = 0;
+    for (let a = 0; a < NC; a++) {
+      for (let b = a + 1; b < NC; b++) {
+        if (overlap({ x1: cellsR[a].x, y1: cellsR[a].y, x2: cellsR[a].x + cellsR[a].w, y2: cellsR[a].y + cellsR[a].h },
+          { x1: cellsR[b].x, y1: cellsR[b].y, x2: cellsR[b].x + cellsR[b].w, y2: cellsR[b].y + cellsR[b].h })) cellHit++;
+      }
+    }
+    line.checks.push(check(cellHit === 0, '图鉴格子两两不重叠', String(cellHit)));
+    line.checks.push(check(cellsR[1].x - (cellsR[0].x + cellsR[0].w) >= S(6) - EPS, '图鉴横向留了呼吸位', ''));
+    line.checks.push(check(UI.codexGridBottom() <= LAY.codexTop + LAY.codexH, '图鉴网格在页面块内', ''));
+    line.checks.push(check(UI.codexGridBottom() + S(16) <= UI.codexHint().y, '图鉴说明行在网格之下', ''));
+
+    // 格内文字：名字 17px、副标题 12px（怪物取定位标签，炮台取「造价 · 攻击方式」）
+    let widestName = 0, widestSub = 0;
+    for (const k of allEnemies) {
+      const info = G.Codex.enemy(k);
+      widestName = Math.max(widestName, estW(info.name, F(17)));
+      widestSub = Math.max(widestSub, estW(info.role, F(12)));
+    }
+    for (const k of allTowers) {
+      const info = G.Codex.tower(k);
+      widestName = Math.max(widestName, estW(info.name, F(17)));
+      widestSub = Math.max(widestSub, estW(info.cost + ' · ' + info.kind, F(12)));
+    }
+    line.checks.push(check(widestName + S(16) <= cellsR[0].w, '图鉴格宽容得下最长名字',
+      `需要 ${(widestName + S(16)).toFixed(0)} vs 格宽 ${cellsR[0].w}`));
+    line.checks.push(check(widestSub + S(16) <= cellsR[0].w, '图鉴格宽容得下副标题',
+      `需要 ${(widestSub + S(16)).toFixed(0)} vs 格宽 ${cellsR[0].w}`));
+
+    // 详情：四个块自上而下依次排开、不重叠、都在块内
+    const heroR = UI.codexHero(), statR = UI.codexStatCells(),
+      blkR = UI.codexBlock(), reactR = UI.codexReactBlock();
+    line.checks.push(check(heroR.y >= LAY.codexTop + S(UI.CODEX_BODY_Y) - EPS, '图鉴头卡在内容区', ''));
+    line.checks.push(check(statR[0].y >= heroR.y + heroR.h, '图鉴数值格在头卡之下', ''));
+    line.checks.push(check(blkR.y >= statR[0].y + statR[0].h, '图鉴文字块在数值格之下', ''));
+    line.checks.push(check(reactR.y >= blkR.y + blkR.h, '图鉴反应块在文字块之下', ''));
+    line.checks.push(check(statR[3].x + statR[3].w <= 674 + EPS, '图鉴数值格横向在屏内', ''));
+    const detBack = UI.codexDetailBack();
+    line.checks.push(check(detBack.y >= reactR.y + reactR.h, '图鉴「返回列表」在反应块之下', ''));
+    line.checks.push(check(detBack.y + detBack.h <= LAY.codexTop + LAY.codexH + EPS, '图鉴「返回列表」在页面块内',
+      `按钮底 ${detBack.y + detBack.h} vs 块底 ${LAY.codexTop + LAY.codexH}`));
+
+    // 头卡文字（名称 26 / 第二行 15 / 第三行 12）不越右边框
+    const heroTx = heroR.x + S(172);
+    const heroOver = [];
+    for (const k of allEnemies) {
+      const info = G.Codex.enemy(k);
+      if (heroTx + estW(info.name, F(26)) > 674) heroOver.push('名:' + info.name);
+      if (heroTx + estW(info.role, F(15)) > 674) heroOver.push('定位:' + info.name);
+      if (heroTx + estW(info.tag, F(12)) > 674) heroOver.push('概括:' + info.name);
+    }
+    for (const k of allTowers) {
+      const info = G.Codex.tower(k);
+      if (heroTx + estW(info.name, F(26)) > 674) heroOver.push('名:' + info.name);
+      if (heroTx + estW(info.elemName + '元素 · ' + info.kind, F(15)) > 674) heroOver.push('元素:' + info.name);
+      if (heroTx + estW(info.cost + ' 能量 · ' + info.role, F(12)) > 674) heroOver.push('副行:' + info.name);
+    }
+    line.checks.push(check(heroOver.length === 0, '图鉴头卡文字不越出面板', heroOver.join(' | ')));
+
+    // 文字块里的每一行
+    const blkOver = [];
+    for (const k of allEnemies) {
+      for (const l of G.Codex.enemy(k).lines) {
+        if (blkR.x + S(20) + estW(l, F(12)) > 674) blkOver.push(l);
+      }
+    }
+    for (const k of allTowers) {
+      for (const l of G.Codex.tower(k).lines) {
+        if (blkR.x + S(20) + estW(l, F(12)) > 674) blkOver.push(l);
+      }
+    }
+    line.checks.push(check(blkOver.length === 0, '图鉴文字块的行不越出面板', blkOver.join(' | ')));
+
+    /* 反应行：左起「对手元素图标 + 元素名+反应名 + 效果」，右端右对齐「× 塔名」。
+     * 三条要都放得下且互不相撞。列锚点读 UI.CODEX_REACT_COLS —— 渲染也是读它，
+     * 所以这里量到的就是画出来的，不存在「自检按一套数、渲染按另一套数」。 */
+    const rRow = UI.codexReactRow(0);
+    const CO = UI.CODEX_REACT_COLS;
+    const reactOver = [], reactTight = [];
+    let maxRows = 0;
+    for (const k of allTowers) {
+      const info = G.Codex.tower(k);
+      const rs = G.Codex.reactionsOf(info.elem);
+      if (rs.length > maxRows) maxRows = rs.length;
+      for (const r of rs) {
+        const nameW = estW(CFG.ELEM[r.otherElem].name + ' ' + r.name, F(15));
+        if (S(CO.nameX) + nameW + S(10) > S(CO.effectX)) reactTight.push(info.name + '/' + r.name);
+        const tagW = estW(r.active ? ('× ' + r.otherTowerName) : '未上线', F(12));
+        const rightLeft = reactR.x + reactR.w - S(16) - tagW;
+        if (rRow.x + S(CO.effectX) + estW(r.effect, F(12)) > rightLeft - S(8)) reactOver.push(info.name + '/' + r.name);
+      }
+    }
+    line.checks.push(check(maxRows <= 6, '元素反应条数 ≤ 6（反应块按 6 行预留）', String(maxRows)));
+    line.checks.push(check(reactTight.length === 0, '反应名与效果两列不叠', reactTight.join(' | ')));
+    line.checks.push(check(reactOver.length === 0, '反应效果文字不顶到右侧标注', reactOver.join(' | ')));
+    const lastRow = UI.codexReactRow(Math.max(1, maxRows) - 1);
+    line.checks.push(check(lastRow.y + lastRow.h <= reactR.y + reactR.h, '反应行都落在反应块内',
+      `末行底 ${lastRow.y + lastRow.h} vs 块底 ${reactR.y + reactR.h}`));
+
+    /* 7i) 「首次遭遇」弹窗：面板自上而下的每一块都要在面板内且不相压。
+     *      形象那两条不用 r*k 估 —— 直接拿记账 ctx 把六只怪在弹窗里的真实位置
+     *      画一遍量包围盒（脑袋/犄角会顶出身体半径，估是估不准的）。 */
+    const pPanel = UI.popPanel(), pFig = UI.popFigure(), pStat = UI.popStatCells(),
+      pBlk = UI.popBlock(), pOk = UI.popOk();
+    line.checks.push(check(pPanel.x >= 40 - EPS && pPanel.x + pPanel.w <= 680 + EPS, '弹窗面板横向在屏内', ''));
+    line.checks.push(check(pPanel.y >= (LAY.insetTop || 0) - EPS && pPanel.y + pPanel.h <= LAY.designH + EPS,
+      '弹窗面板纵向在屏内', `块[${pPanel.y}, ${pPanel.y + pPanel.h}] vs 设计高 ${Math.round(LAY.designH)}`));
+    const roleBottom = pPanel.y + S(UI.POP_LINES.role) + F(13) / 2;
+    const tagTop = pPanel.y + S(UI.POP_LINES.tag) - F(13) / 2;
+    const figTop = [], figBot = [], figSide = [];
+    for (const k of allEnemies) {
+      for (const t of PHASES) {
+        const box = monBox(G, k, pFig.r, pFig.x, pFig.y, t);
+        if (pFig.y - box.up < roleBottom + EPS) figTop.push(`${k} 形象顶 ${(pFig.y - box.up).toFixed(1)} vs 定位行底 ${roleBottom.toFixed(1)}`);
+        if (pFig.y + box.down > tagTop - EPS) figBot.push(`${k} 形象底 ${(pFig.y + box.down).toFixed(1)} vs 概括行顶 ${tagTop.toFixed(1)}`);
+        if (pFig.x - box.side < pPanel.x + S(16) || pFig.x + box.side > pPanel.x + pPanel.w - S(16)) {
+          figSide.push(`${k} 形象半宽 ${box.side.toFixed(1)}`);
+        }
+      }
+    }
+    line.checks.push(check(figTop.length === 0, '弹窗形象不顶到定位标签', figTop.join(' | ')));
+    line.checks.push(check(figBot.length === 0, '弹窗形象不压到一句话概括', figBot.join(' | ')));
+    line.checks.push(check(figSide.length === 0, '弹窗形象不横向溢出面板', figSide.join(' | ')));
+    line.checks.push(check(pStat[0].y >= tagTop + F(13) / 2 + S(6), '弹窗数值格在一句话概括之下', ''));
+    line.checks.push(check(pBlk.y >= pStat[0].y + pStat[0].h, '弹窗要点块在数值格之下', ''));
+    line.checks.push(check(pOk.y >= pBlk.y + pBlk.h, '弹窗按钮在要点块之下', ''));
+    line.checks.push(check(pOk.y + pOk.h <= pPanel.y + pPanel.h - S(20), '弹窗按钮在面板内',
+      `按钮底 ${pOk.y + pOk.h} vs 面板底 ${pPanel.y + pPanel.h}`));
+    const popOver = [];
+    const popMid = pPanel.x + pPanel.w / 2;
+    for (const k of allEnemies) {
+      const info = G.Codex.enemy(k);
+      if (popMid + estW(info.name, F(26)) / 2 > pPanel.x + pPanel.w - S(24)) popOver.push('名:' + info.name);
+      if (popMid + estW(info.role, F(13)) / 2 > pPanel.x + pPanel.w - S(24)) popOver.push('定位:' + info.name);
+      if (popMid + estW(info.tag, F(13)) / 2 > pPanel.x + pPanel.w - S(24)) popOver.push('概括:' + info.name);
+      for (const l of info.lines) {
+        if (pBlk.x + S(18) + estW(l, F(12)) > pBlk.x + pBlk.w - S(16)) popOver.push(l);
+      }
+    }
+    line.checks.push(check(popOver.length === 0, '弹窗文字不越出面板', popOver.join(' | ')));
 
     // 8) 建造栏不压 home 指示条
     line.checks.push(check(DY(LAY.barY + LAY.barH) <= screenH - homeInset + 1, '建造栏不压 home 条',
@@ -634,6 +978,13 @@ for (const r of rows) {
 
 console.log('');
 if (failures) {
+  /* 结构断言（图标 / 怪物形象 / 图鉴数据 / 菜单绘制…）原来只在计数上加一，
+   * 一条都不打 —— 失败时只看到「共 1 项未通过」，连是哪条都不知道。
+   * 所以这里按「对象身份」挑出没进任何机型行的失败项，逐条打出来。 */
+  const inRow = new Set();
+  for (const r of rows) for (const c of r.checks) inRow.add(c);
+  const structBad = allChecks.filter(c => !c.ok && !inRow.has(c));
+  for (const b of structBad) console.log('       · ' + b.label + (b.detail ? '  —— ' + b.detail : ''));
   console.log(`>>> 共 ${failures} 项未通过`);
   process.exit(1);
 } else {

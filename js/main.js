@@ -7,8 +7,9 @@
   var CFG = G.CFG, U = G.Util, Grid = G.Grid, R = G.Runtime;
 
   var game = G.Game = {
-    state: 'menu',          // menu | set | help | prep | wave | over | win
-    prevState: 'menu',      // 从哪个整屏版式进来的（设置/玩法页的「返回」回到这里）
+    state: 'menu',          // menu | set | help | codex | pop | prep | wave | over | win
+    prevState: 'menu',      // 从哪个整屏版式进来的（设置/玩法/图鉴的「返回」回到这里；
+                            // 「首次遭遇」弹窗也用它记住暂停在哪——prep 还是 wave）
     time: 0,
     coreHp: 100,
     coreMax: 100,
@@ -40,7 +41,13 @@
     toastT: 0,
     best: 0,
     bannerT: 0,
-    bannerMsg: ''
+    bannerMsg: '',
+    /* —— 图鉴 —— */
+    codexTab: 0,            // 0 = 怪物，1 = 炮台
+    codexSel: null,         // 详情视图里选中的条目（null = 列表视图）
+    /* —— 首次遭遇弹窗 —— */
+    codexQueue: [],         // 待弹的新怪（同帧刷出两只就排两个）
+    popKey: null            // 当前弹窗展示的怪（非 null 即处于暂停）
   };
 
   /* ------------------------------------------------------------------ */
@@ -85,6 +92,10 @@
     g.hitStop = 0;
     g.toastT = 0;
     g.bannerT = 0;
+    /* 图鉴的选中项与待弹队列要清；已解锁记录不动 —— 那是跨局的（存在 echo_seen 里） */
+    g.codexSel = null;
+    g.codexQueue.length = 0;
+    g.popKey = null;
     G.FX.clear();
     G.Resonance.reset();
     Grid.reset();
@@ -462,9 +473,12 @@
 
     G.FX.update(dt);
 
-    // 整屏版式（菜单/设置/玩法/结算）里不跑战斗逻辑。
-    // 计时器在上面已经衰减过，所以提示与横幅在这些页面照常会自己淡掉。
+    /* 整屏版式（菜单/设置/玩法/图鉴/结算）与「首次遭遇」弹窗里不跑战斗逻辑。
+     * 弹窗走同一条早退，就是「暂停」的全部实现：prepT 不倒数、敌人不动、
+     * 塔不开火，而 g.time 在上面已经加过了 —— 所以弹窗里的怪物形象照常在做动画。
+     * 计时器也在上面衰减过，提示与横幅在这些页面照常会自己淡掉。 */
     if (g.state === 'menu' || g.state === 'set' || g.state === 'help' ||
+      g.state === 'codex' || g.state === 'pop' ||
       g.state === 'over' || g.state === 'win') return;
 
     if (g.state === 'prep') {
@@ -479,6 +493,10 @@
         if (g.enemies.length < 72) {
           var e = ev[g.spawnIdx];
           g.enemies.push(G.Enemies.create(e.type, e.hpMul, CFG.SPAWN_COLS[e.spawn], g.waveData.rewardMul));
+          /* 首次遭遇的记号在这里落 —— 必须在刷怪处而不是 Enemies.create 里：
+           * 回声倒带会用 create 重建敌人，写在 create 里会把「已经见过的怪」
+           * 又当成新的，倒一次带回溯一次弹窗。 */
+          G.Game.queueCodex(e.type);
         }
         g.spawnIdx++;
       }
@@ -504,6 +522,12 @@
     if (g.state === 'wave' && g.waveData) {
       if (g.spawnIdx >= g.waveData.events.length && g.enemies.length === 0) waveComplete();
     }
+
+    /* 新怪入场 → 暂停 + 弹窗。刻意放在本帧所有战斗逻辑**之后**：
+     * 这样「暂停」落在一个完整的帧边界上，而不是半帧里
+     * （否则刚 spawn 的怪会停在出生线外不动，回来看见它「卡」在那）。 */
+    if (g.codexQueue.length && !g.popKey &&
+      (g.state === 'prep' || g.state === 'wave')) G.Game.openPop();
   };
 
   /* ------------------------------------------------------------------ */
@@ -523,22 +547,37 @@
     if (G.Audio) G.Audio.unlock();
 
     // 音效开关（任何界面都能点）
-    // 快捷音效开关：设置/玩法页不响应（那两页没画它，大字号下会与返回按钮重叠）
-    if (G.Audio && g.state !== 'set' && g.state !== 'help' && inRect(x, y, LAY.soundBtn)) {
+    // 快捷音效开关：设置 / 玩法 / 图鉴 / 弹窗都不响应
+    // （那几页没画它，大字号下会与页面自己的按钮重叠；设置页里另有音效开关）
+    if (G.Audio && g.state !== 'set' && g.state !== 'help' &&
+      g.state !== 'codex' && g.state !== 'pop' && inRect(x, y, LAY.soundBtn)) {
       var m = G.Audio.toggleMute();
       G.Game.toast(m ? '音效已关闭' : '音效已开启');
       return;
     }
 
     if (g.state === 'menu') {
-      if (inRect(x, y, G.UI.menuStart())) { A('ui'); G.Game.startRun(); }
-      else if (inRect(x, y, G.UI.menuHelp())) { A('ui'); G.Game.openPage('help'); }
-      else if (inRect(x, y, G.UI.menuSet())) { A('ui'); G.Game.openPage('set'); }
+      if (inRect(x, y, G.UI.menuStart())) { A('ui'); G.Game.startRun(); return; }
+      // 次级按钮遍历 UI.menuSubBtns()：与 drawMenu 读同一张表（新增按钮只需改那一处）
+      var subs = G.UI.menuSubBtns();
+      for (var si = 0; si < subs.length; si++) {
+        if (!inRect(x, y, subs[si].rect)) continue;
+        A('ui');
+        if (subs[si].key === 'help') G.Game.openPage('help');
+        else if (subs[si].key === 'codex') G.Game.openCodex();
+        else if (subs[si].key === 'set') G.Game.openPage('set');
+        return;
+      }
       return;
     }
     // 设置页与玩法页：只处理自己的控件，绝不落到下面的战斗分支
     if (g.state === 'set' || g.state === 'help') {
       G.Game.onPageTap(x, y);
+      return;
+    }
+    // 图鉴页与「首次遭遇」弹窗：同上，各自独立处理
+    if (g.state === 'codex' || g.state === 'pop') {
+      G.Game.onCodexTap(x, y);
       return;
     }
     if (g.state === 'over' || g.state === 'win') {
@@ -684,6 +723,109 @@
       A('ui');
       return;
     }
+  };
+
+  /* ------------------------------------------------------------------ */
+  /*  图鉴：首页入口进来的整屏页                                          */
+  /* ------------------------------------------------------------------ */
+  G.Game.openCodex = function () {
+    game.prevState = game.state;
+    game.state = 'codex';
+    game.codexSel = null;
+    game.sel = null;
+    game.selCard = null;
+    game.pulseMode = false;
+    game.toastT = 0;
+  };
+
+  G.Game.closeCodex = function () {
+    // 图鉴只从菜单进，所以返回一律回菜单（不沿用 closePage 的白名单，
+    // 那条白名单是为「结算页里能进设置」这类路径准备的）
+    game.state = 'menu';
+    game.codexSel = null;
+    game.toastT = 0;
+  };
+
+  /**
+   * 图鉴页与「首次遭遇」弹窗上的点击。
+   * 几何一律取自 G.UI.codex* / G.UI.pop*，与渲染同源，不在这里重算坐标。
+   */
+  G.Game.onCodexTap = function (x, y) {
+    var g = game;
+
+    // —— 弹窗：整块只有一个「继续」 ——
+    if (g.state === 'pop') {
+      if (inRect(x, y, G.UI.popOk())) G.Game.closePop();
+      return;
+    }
+
+    // —— 图鉴：先页头返回，再 Tab，再（详情里的）返回列表，最后才是格子 ——
+    if (inRect(x, y, G.UI.codexBack())) { A('ui'); G.Game.closeCodex(); return; }
+
+    var tabs = G.UI.codexTabs();
+    for (var i = 0; i < tabs.length; i++) {
+      if (!inRect(x, y, tabs[i])) continue;
+      if (g.codexTab !== i) { g.codexTab = i; g.codexSel = null; A('ui'); }
+      return;
+    }
+
+    if (g.codexSel) {
+      if (inRect(x, y, G.UI.codexDetailBack())) { A('ui'); g.codexSel = null; }
+      return;
+    }
+
+    var keys = (g.codexTab === 0) ? G.Codex.enemyKeys() : G.Codex.towerKeys();
+    for (var k = 0; k < keys.length; k++) {
+      if (!inRect(x, y, G.UI.codexCell(k))) continue;
+      // 没遭遇过的怪不给点开：点进去也只有三个问号，属于无效操作
+      if (g.codexTab === 0 && !G.Codex.isSeen(keys[k])) { A('deny'); return; }
+      g.codexSel = keys[k];
+      A('select');
+      return;
+    }
+  };
+
+  /* ------------------------------------------------------------------ */
+  /*  首次遭遇：暂停 + 弹窗                                               */
+  /* ------------------------------------------------------------------ */
+  /**
+   * 刷怪处调它。返回 true = 这是第一次遇到这只怪。
+   * 只负责「记一笔 + 入队」，真正的弹窗在主循环末尾统一开 ——
+   * 刷怪是在 while 循环里发生的，在那儿直接切状态会把一帧切成两半。
+   */
+  G.Game.queueCodex = function (key) {
+    if (!G.Codex) return false;
+    if (!G.Codex.markSeen(key)) return false;
+    if (game.codexQueue.indexOf(key) < 0) game.codexQueue.push(key);
+    return true;
+  };
+
+  /** 弹出队首的新怪。已暂停时不再进来（靠 popKey 兜底）。 */
+  G.Game.openPop = function () {
+    if (game.popKey) return;
+    var key = game.codexQueue.shift();
+    if (!key || !CFG.ENEMIES[key]) return;
+    // 记住暂停在哪：只有第一次开弹窗时记（排队的第二只不能覆盖成 'pop'）
+    if (game.state === 'prep' || game.state === 'wave') game.prevState = game.state;
+    game.state = 'pop';
+    game.popKey = key;
+    game.sel = null;
+    game.selCard = null;
+    game.pulseMode = false;
+    game.toastT = 0;
+    game.bannerT = 0;
+    A('waveStart');       // 复用低频轰鸣：新东西来了，不新增音色（音频自检按音色数断言）
+    R.buzz('medium');
+  };
+
+  /** 关掉弹窗：队列里还有就接着弹下一个，否则回到进来时的战斗状态继续。 */
+  G.Game.closePop = function () {
+    A('ui');
+    game.popKey = null;
+    if (game.codexQueue.length) { G.Game.openPop(); return; }
+    var back = game.prevState;
+    if (back !== 'prep' && back !== 'wave') back = 'prep';
+    game.state = back;
   };
 
   G.Game.beginGameLoop = function () {

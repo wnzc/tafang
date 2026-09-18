@@ -17,6 +17,7 @@ canvas{display:none}</style>
 <script src="../js/audio.js"></script>
 <script src="../js/config.js"></script>
 <script src="../js/settings.js"></script>
+<script src="../js/codex.js"></script>
 <script src="../js/grid.js"></script>
 <script src="../js/fx.js"></script>
 <script src="../js/enemies.js"></script>
@@ -114,7 +115,7 @@ canvas{display:none}</style>
       (hadSnaps ? '（已回溯）' : '（无快照）') + ' / 特效 ' + G.FX.count();
   });
 
-  step('7_设置页与玩法页', function () {
+  step('7_设置页 / 玩法页 / 图鉴 / 首次遭遇弹窗', function () {
     var center = function (r) { return [r.x + r.w / 2, r.y + r.h / 2]; };
     var tap = function (r) { var c = center(r); G.Game.onTap(c[0], c[1]); };
 
@@ -161,11 +162,56 @@ canvas{display:none}</style>
     tap(G.UI.helpBack());
     if (G.Game.state !== 'menu') throw new Error('玩法页返回失败');
 
+    /* 图鉴页：菜单三个次级按钮共用 UI.menuSubBtns() 一张表，
+     * 所以这里顺带验一遍「遍历表派发」的路子是通的（曾经 render 漏画过图鉴按钮）。 */
+    var subs = G.UI.menuSubBtns();
+    if (subs.length !== 3) throw new Error('菜单次级按钮不是三个：' + subs.length);
+    for (var si = 0; si < subs.length; si++) {
+      tap(subs[si].rect);
+      var want = subs[si].key === 'codex' ? 'codex' : (subs[si].key === 'help' ? 'help' : 'set');
+      if (G.Game.state !== want) {
+        throw new Error('点「' + subs[si].label + '」没进' + want + '，state=' + G.Game.state);
+      }
+      G.Game.update(1 / 60); G.Render.draw(G.Game);
+      // 返回菜单：图鉴用自己的返回按钮，设置/玩法页用各自页头的返回
+      if (want === 'codex') tap(G.UI.codexBack());
+      else if (want === 'set') tap(G.UI.setBack());
+      else tap(G.UI.helpBack());
+      if (G.Game.state !== 'menu') throw new Error(subs[si].label + ' 返回菜单失败，state=' + G.Game.state);
+    }
+
+    // 图鉴里点一个格子进详情、再返回列表（详情几何与命中同源，点得到才行）
+    tap(subs[1].rect);
+    G.Codex.markAllSeen();
+    var cells = G.UI.codexCell(0);
+    G.Game.onTap(cells.x + cells.w / 2, cells.y + cells.h / 2);
+    if (G.Game.codexSel !== G.Codex.enemyKeys()[0]) throw new Error('图鉴格子没进详情');
+    tap(G.UI.codexDetailBack());
+    if (G.Game.codexSel !== null) throw new Error('图鉴详情没返回列表');
+    tap(G.UI.codexBack());
+
+    // 「首次遭遇」弹窗：新解锁才弹，重复不弹；关完回战斗
+    G.Game.reset();
+    G.Game.startRun();
+    G.Game.startWave(true);
+    G.Codex.reset();                                  // 造一个「全新档」：drifter 还没解锁
+    if (!G.Game.queueCodex('drifter')) throw new Error('首次遭遇没有入队');
+    if (G.Game.queueCodex('drifter')) throw new Error('同一只怪重复入队');
+    G.Game.update(1 / 60);
+    if (G.Game.state !== 'pop') throw new Error('新怪出场没有暂停弹窗，state=' + G.Game.state);
+    var waveTimeBefore = G.Game.waveTime;
+    for (var pf = 0; pf < 30; pf++) G.Game.update(1 / 60);
+    if (G.Game.waveTime !== waveTimeBefore) throw new Error('弹窗期间战斗没有暂停');
+    G.Render.draw(G.Game);
+    tap(G.UI.popOk());
+    if (G.Game.state !== 'wave') throw new Error('关掉弹窗没回战斗，state=' + G.Game.state);
+    G.Codex.markAllSeen();       // 别把测试解锁的怪留给用户
+
     // 复原设置，别把测试留下的档位写进用户的存储
     G.Settings.set('fontLevel', 1);
     G.Settings.set('volume', 1);
     G.Settings.set('vibrate', true);
-    return 'OK 档位 小/中/大 可切，音量与震动开关生效，返回正常';
+    return 'OK 档位 小/中/大 可切，音量与震动开关生效，三个次级按钮都能进能回，图鉴与首次遭遇弹窗正常';
   });
 
   report.ok = report.errors.length === 0;

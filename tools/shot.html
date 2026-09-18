@@ -23,6 +23,7 @@
 <script src="../js/audio.js"></script>
 <script src="../js/config.js"></script>
 <script src="../js/settings.js"></script>
+<script src="../js/codex.js"></script>
 <script src="../js/grid.js"></script>
 <script src="../js/fx.js"></script>
 <script src="../js/enemies.js"></script>
@@ -35,7 +36,9 @@
 <script src="../js/main.js"></script>
 <script>
 /*
- * 给无头 Chrome 拍图用：?scene=game|menu|over|win&wx=1
+ * 给无头 Chrome 拍图用：?scene=game|monsters|tech|menu|set|help|over|win|codex|pop&wx=1
+ *   codex 另有 &tab=0|1 &sel=<key> &seen=<逗号分隔|all>
+ *   pop   另有 &key=<怪物 key>
  *   wx=1 时模拟微信安全区（状态栏 + 右上角胶囊），用来肉眼验收顶部适配。
  *
  * 关键点：不要在 rAF 里等 —— 无头下直接同步推进若干帧再画一帧，
@@ -105,6 +108,47 @@
       G.Game.enemies.push(em);
     }
     for (var mf = 0; mf < 40; mf++) G.Game.update(1 / 60);
+    G.Game.bannerT = 0;
+    G.Game.toastT = 0;
+
+  } else if (scene === 'codex') {
+    /* 图鉴验收：&tab=0|1（怪物 / 炮台）&sel=<key>（直接进详情）
+     * &seen=drifter,sprinter（默认只解锁前两只 —— 剩下的格子会画成三个问号，
+     * 正好验收「未遭遇」那一态；写成 seen=all 就全解锁）。
+     * 注意：这里会重写本机 localStorage 里的 echo_seen，仅用于截图。 */
+    G.Game.startRun();
+    var seenArg = q.get('seen') || 'drifter,sprinter';
+    G.Codex.reset();
+    if (seenArg === 'all') {
+      G.Codex.markAllSeen();
+    } else {
+      var seenList = seenArg.split(',');
+      for (var si = 0; si < seenList.length; si++) if (seenList[si]) G.Codex.markSeen(seenList[si]);
+    }
+    G.Game.openCodex();
+    var codexTab = parseInt(q.get('tab'), 10) || 0;
+    G.Game.codexTab = codexTab;
+    var codexSelKey = q.get('sel');
+    if (codexSelKey) {
+      var okSel = codexTab === 1 ? !!G.CFG.TOWERS[codexSelKey]
+        : (!!G.CFG.ENEMIES[codexSelKey] && G.Codex.isSeen(codexSelKey));
+      if (okSel) G.Game.codexSel = codexSelKey;
+    }
+
+  } else if (scene === 'pop') {
+    /* 首次遭遇弹窗验收：&key=bulwark 指定弹哪只。
+     * 正常路径是「刷出新怪 → 暂停 → 弹窗」，截图页不值得等一波怪，
+     * 所以先打 4 秒把战场铺起来，再直接摆出暂停态 —— 遮罩下要看得见战场。 */
+    G.Game.startRun();
+    G.Game.startWave(true);
+    for (var pf = 0; pf < 240; pf++) G.Game.update(1 / 60);
+    var popK = q.get('key') || 'bulwark';
+    if (G.CFG.ENEMIES[popK]) {
+      G.Codex.markSeen(popK);
+      G.Game.prevState = G.Game.state;
+      G.Game.popKey = popK;
+      G.Game.state = 'pop';
+    }
     G.Game.bannerT = 0;
     G.Game.toastT = 0;
 

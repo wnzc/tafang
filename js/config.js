@@ -206,6 +206,13 @@
    * 在 js/monsters.js（按 key 对应），所以加怪要动两个文件。
    * color 是这只怪的「主色」，形象的主色、光晕、血条都取自它。
    */
+  /* 形象「画出来」的实际外扩上限，单位是 r 的倍数（r = 身体半径）。
+   * 数值不是估的：tools/layout-check.js 用记账 ctx 把每只怪在四个时刻
+   * 全画一遍算包围盒，取最大值。弹窗的纵向排布要靠它 —— 脑袋/耳朵/犄角
+   * 会顶出身体半径之外（最高的游荡体到 1.44r），按 1.0r 排会把定位标签压住。
+   * 改动形象若超出这个值，layout-check 会直接报「形象超出登记外扩」。 */
+  CFG.MON_EXTENT = { up: 1.44, down: 1.31, side: 1.36 };
+
   CFG.ENEMIES = {
     drifter: {
       key: 'drifter', name: '游荡体', hp: 62, speed: 58, r: 13,
@@ -433,10 +440,21 @@
      * 而不是钉死在 1280 基准上 —— 否则字号一变就会掉出屏幕底。
      * 块高必须跟 render.js 里该版式实际排到的最底部对齐，改版式时一起改。 */
     var MENU_H = S(650), SET_H = S(730), HELP_H = S(1150), OVER_H = S(540);
+    /* 图鉴页（codex）与「首次遭遇」弹窗（pop）也是整屏块。
+     * 两者的块高刻意压在 HELP_H（1150）以内 —— neededH 取这几个块的最大值，
+     * 谁超过 HELP_H 谁就会把短屏机型的整体缩放一起拉小，
+     * 而图鉴是「看一眼就回去」的页面，不该动战斗版式的一个像素。
+     * pop 从 700 涨到 760 也是同理：弹窗里要放一只「大头像」怪，
+     * 纵向预算（定位行 → 一句话概括）只够 r≈42，撑不起形象；
+     * 加高 60 全给形象，实测能到 r=56（小体型的怪接近 5 倍放大），
+     * 760 仍远小于 1150，所以整体缩放和战斗版式一个像素都没动。 */
+    var CODEX_H = S(1000), POP_H = S(760);
     var pagePad = top + S(10);
     var menuTop = Math.max(pagePad, Math.round((designH - MENU_H) / 2));
     var setTop = Math.max(pagePad, Math.round((designH - SET_H) / 2));
     var helpTop = Math.max(pagePad, Math.round((designH - HELP_H) / 2));
+    var codexTop = Math.max(pagePad, Math.round((designH - CODEX_H) / 2));
+    var popTop = Math.max(pagePad, Math.round((designH - POP_H) / 2));
     /* 结算面板要躲开 HUD（结算时 HUD 仍然在画）：HUD 底 = top + S(282) */
     var overTop = Math.max(top + S(292), Math.round((designH - OVER_H) / 2));
 
@@ -445,7 +463,7 @@
      * 与其让规则文字掉出屏幕，不如整块缩一档。
      * 预留只算「顶部让开状态栏 + 底部让开 home 条」：整屏版式是垂直居中的，
      * 底部余量天然等于顶部余量，不必再翻倍预留（翻倍会把短屏机型的缩放白吃掉 5%+）。 */
-    var pageNeed = Math.max(MENU_H, SET_H, HELP_H, OVER_H) +
+    var pageNeed = Math.max(MENU_H, SET_H, HELP_H, OVER_H, CODEX_H, POP_H) +
       top + Math.max(insetBottom, S(10));
     var neededH = Math.max(gameNeed, pageNeed);
 
@@ -471,6 +489,10 @@
       setH: SET_H,
       helpTop: helpTop,
       helpH: HELP_H,
+      codexTop: codexTop,
+      codexH: CODEX_H,
+      popTop: popTop,
+      popH: POP_H,
       overTop: overTop,
       overH: OVER_H,
       barY: barY,
