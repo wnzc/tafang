@@ -38,7 +38,7 @@ const canvasStub = {
 };
 
 const JS_DIR = path.join(__dirname, '..', 'js');
-const FILES = ['runtime', 'util', 'icons', 'audio', 'config', 'settings', 'codex', 'grid', 'fx', 'enemies', 'monsters',
+const FILES = ['runtime', 'util', 'icons', 'audio', 'config', 'settings', 'codex', 'profile', 'grid', 'fx', 'enemies', 'monsters',
   'towers', 'resonance', 'waves', 'ui', 'render', 'main'];
 
 /* ---------------------- 断言工具 ---------------------- */
@@ -109,10 +109,10 @@ const LEVELS = G0.CFG.FONT_LEVELS;
 /* ---------------------- 3) 逐档跑界面 ---------------------- */
 const base = {
   time: 1.7, shake: 0, wave: 3, wavesTotal: 20, best: 1234,
-  coreHp: 88, coreMax: 100, echo: 62, energy: 230, prepT: 8,
-  pulseMode: false, sel: null, selCard: null, towers: [], enemies: [],
+  coreHp: 88, coreMax: 100, energy: 230, prepT: 8,
+  sel: null, selCard: null, towers: [], enemies: [],
   bullets: [], bannerT: 0, toastT: 0, redFlash: 0, whiteFlash: 0,
-  waveData: null, spawnIdx: 0, echoBuffT: 0
+  waveData: null, spawnIdx: 0
 };
 /* 塔面板不是主循环状态，只有「选中一座塔」时才画，单独造一个塔对象喂进去。
  * 漏掉这一档就会漏掉塔面板专用的字号（17px 那一级），所以必须覆盖。 */
@@ -126,7 +126,7 @@ const TOWER = {
 const STATES = [
   ['prep', Object.assign({}, base, { state: 'prep' })],
   ['wave', Object.assign({}, base, {
-    state: 'wave', waveData: { events: [1, 2, 3, 4, 5] }, spawnIdx: 2, echoBuffT: 2.5
+    state: 'wave', waveData: { events: [1, 2, 3, 4, 5], mutName: '巨力地脉' }, spawnIdx: 2
   })],
   ['tower', Object.assign({}, base, { state: 'wave', sel: TOWER })],
   ['menu', Object.assign({}, base, { state: 'menu' })],
@@ -171,9 +171,8 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
     G.Game.selCard = null;
     G.Game.startWave(true);
     for (var fi = 0; fi < 900; fi++) G.Game.update(1 / 60);   // 15 秒
-    G.Game.castPulse(400, 700);                               // 震击数
-    G.Game.echo = 100;
-    G.Game.castEcho();                                        // 倒带横幅
+    /* 主动技（脉冲 / 倒带）已下线：「震击 n」飘字与倒带横幅两条字号路径随之消失，
+     * 这里只保留现行玩法真实存在的路径（塔面板 / 能量 / 提示）。 */
     G.Game.energy = 415;
     G.Game.toast('能量不足');
     G.Game.sel = G.Game.towers.length ? G.Game.towers[0] : null;   // 塔面板

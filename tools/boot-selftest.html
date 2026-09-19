@@ -18,6 +18,7 @@ canvas{display:none}</style>
 <script src="../js/config.js"></script>
 <script src="../js/settings.js"></script>
 <script src="../js/codex.js"></script>
+<script src="../js/profile.js"></script>
 <script src="../js/grid.js"></script>
 <script src="../js/fx.js"></script>
 <script src="../js/enemies.js"></script>
@@ -70,9 +71,9 @@ canvas{display:none}</style>
 
   step('4_输入绑定', function () {
     // boot 里已绑定；这里验证命中区不越界、不抛错
-    G.Game.onTap(60, 60);                                     // HUD
-    G.Game.onTap(G.LAY.soundBtn.x + 4, G.LAY.soundBtn.y + 4);  // 音效开关
-    G.Game.onTap(G.LAY.soundBtn.x + 4, G.LAY.soundBtn.y + 4);  // 再点一次复原
+    G.Game.onTap(60, 60);                                          // HUD
+    G.Game.onTap(G.LAY.settingsBtn.x + 4, G.LAY.settingsBtn.y + 4); // 设置键 → 设置页
+    G.Game.closePage();                                            // 返回（设置页里另有音效开关）
     var b = G.UI.menuStart();
     G.Game.onTap(b.x + b.w / 2, b.y + b.h / 2);                // 开始游戏
     return 'OK state=' + G.Game.state;
@@ -89,7 +90,7 @@ canvas{display:none}</style>
     return 'OK ' + report.frames + ' 帧';
   });
 
-  step('6_建造与技能', function () {
+  step('6_建造与升级', function () {
     G.Game.energy = 9999;
     G.Game.selCard = 'electro';
     if (!G.Game.tryBuild(4, 4)) throw new Error('建造失败');
@@ -102,17 +103,19 @@ canvas{display:none}</style>
     var built = G.Game.towers.length;
     if (built !== 3) throw new Error('应有 3 座塔，实际 ' + built);
 
-    G.Game.castPulse(400, 700);
+    /* 主动技（脉冲 / 倒带）已下线，炮塔自己的两条操作路径就成了必须覆盖的：
+     * 升级（花能量换输出）与回收（退 70% 造价）—— 这两条断了玩家就没得操作。 */
+    var t0 = G.Game.towers[0], lv0 = t0.level;
+    G.Game.upgradeTower(t0);
+    if (t0.level !== lv0 + 1) throw new Error('升级没生效');
 
-    // 回声倒带会把战场退回 4 秒前，那时还没建塔 —— 所以塔数必然归零，
-    // 这是正确行为，不是 bug。分开统计以免误读。
-    G.Game.echo = 100;
-    var hadSnaps = G.Game.snaps.length > 0;
-    G.Game.castEcho();
+    var n0 = G.Game.towers.length;
+    G.Game.sellTower(G.Game.towers[n0 - 1]);
+    if (G.Game.towers.length !== n0 - 1) throw new Error('回收没生效');
     for (var j = 0; j < 60; j++) { G.Game.update(1 / 60); G.Render.draw(G.Game); }
 
-    return 'OK 建塔 ' + built + ' → 倒带后 ' + G.Game.towers.length +
-      (hadSnaps ? '（已回溯）' : '（无快照）') + ' / 特效 ' + G.FX.count();
+    return 'OK 建塔 ' + built + ' → 升级至 Lv' + t0.level + ' / 回收后 ' +
+      G.Game.towers.length + ' 座 / 特效 ' + G.FX.count();
   });
 
   step('7_设置页 / 玩法页 / 图鉴 / 首次遭遇弹窗', function () {
@@ -162,18 +165,24 @@ canvas{display:none}</style>
     tap(G.UI.helpBack());
     if (G.Game.state !== 'menu') throw new Error('玩法页返回失败');
 
-    /* 图鉴页：菜单三个次级按钮共用 UI.menuSubBtns() 一张表，
-     * 所以这里顺带验一遍「遍历表派发」的路子是通的（曾经 render 漏画过图鉴按钮）。 */
+    /* 图鉴页：菜单四个次级按钮共用 UI.menuSubBtns() 一张表，
+     * 所以这里顺带验一遍「遍历表派发」的路子是通的（曾经 render 漏画过图鉴按钮）。
+     * 「回响」入口是图鉴页的第三个 tab，落点状态同样是 'codex'，只是 codexTab=2。 */
     var subs = G.UI.menuSubBtns();
-    if (subs.length !== 3) throw new Error('菜单次级按钮不是三个：' + subs.length);
+    if (subs.length !== 4) throw new Error('菜单次级按钮不是四个：' + subs.length);
     for (var si = 0; si < subs.length; si++) {
       tap(subs[si].rect);
-      var want = subs[si].key === 'codex' ? 'codex' : (subs[si].key === 'help' ? 'help' : 'set');
+      var want = subs[si].key === 'set' ? 'set' : (subs[si].key === 'help' ? 'help' : 'codex');
+      var wantTab = subs[si].key === 'codex' ? 0 : (subs[si].key === 'profile' ? 2 : -1);
       if (G.Game.state !== want) {
         throw new Error('点「' + subs[si].label + '」没进' + want + '，state=' + G.Game.state);
       }
+      if (wantTab >= 0 && G.Game.codexTab !== wantTab) {
+        throw new Error('点「' + subs[si].label + '」落的 tab 不对：' +
+          G.Game.codexTab + ' 应为 ' + wantTab);
+      }
       G.Game.update(1 / 60); G.Render.draw(G.Game);
-      // 返回菜单：图鉴用自己的返回按钮，设置/玩法页用各自页头的返回
+      // 返回菜单：图鉴（含回响页）用自己的返回按钮，设置/玩法页用各自页头的返回
       if (want === 'codex') tap(G.UI.codexBack());
       else if (want === 'set') tap(G.UI.setBack());
       else tap(G.UI.helpBack());
@@ -211,7 +220,7 @@ canvas{display:none}</style>
     G.Settings.set('fontLevel', 1);
     G.Settings.set('volume', 1);
     G.Settings.set('vibrate', true);
-    return 'OK 档位 小/中/大 可切，音量与震动开关生效，三个次级按钮都能进能回，图鉴与首次遭遇弹窗正常';
+    return 'OK 档位 小/中/大 可切，音量与震动开关生效，四个次级按钮（含回响档案）都能进能回，图鉴与首次遭遇弹窗正常';
   });
 
   step('8_后台暂停与恢复', function () {

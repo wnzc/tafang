@@ -54,12 +54,16 @@
     return info || {};
   }
 
-  /** 右上角胶囊按钮的真实矩形（只有它能给出准确位置和高度） */
+  /** 右上角胶囊按钮的真实矩形（官方 API：getMenuButtonBoundingClientRect）。
+   *  返回的 {top,right,bottom,left,width,height} 全部是相对屏幕的逻辑 px。
+   *  注意：开发者工具冷启动首帧、或切机型后首帧，这里常返回全 0 ——
+   *  所以守卫只在「高度为正且上下沿至少一侧有效」时才认，否则返回 null，
+   *  由调用方在下一帧补读（见 R.init 的 setTimeout）。 */
   function readCapsule() {
     try {
       if (typeof wx.getMenuButtonBoundingClientRect === 'function') {
         var r = wx.getMenuButtonBoundingClientRect();
-        if (r && r.height > 0 && r.bottom > 0 && r.left > 0) return r;
+        if (r && r.height > 0 && (r.top > 0 || r.bottom > 0) && r.left > 0) return r;
       }
     } catch (e) { /* ignore */ }
     return null;
@@ -73,18 +77,34 @@
       return;
     }
     var s = R.scale;
-    /* 左右黑边：设计坐标 x=0 落在屏幕的 ox 处。
-     * 屏幕 X = 设计 x * s + ox，所以横向上「离屏幕左边多少 px」
-     * 换算成设计坐标时必须先减掉 ox，否则窄屏有黑边时，
-     * 右列会以为自己还有位置，实际已经压到胶囊上。 */
+    /* 浏览器预览 / 开发者工具模拟时，画布是居中铺在窗口里的（可能有黑边），
+     * 所以屏幕 px 与设计坐标之间要先减 ox/oy 才对得上。
+     * 微信小游戏的真机/模拟器里画布铺满整屏，ox/oy 自然为 0，下面这套换算
+     * 同样成立 —— 用官方接口给的屏幕 px 直接换即可。 */
     var ox = (R.vw - R.W * s) / 2;
+    var oy = (R.vh - (R.designH || 1280) * s) / 2;
 
-    // 顶部：状态栏高度。胶囊压在状态栏右侧且更靠下，所以左沿/下沿单独记。
+    // 顶部：状态栏高度（官方 getWindowInfo().statusBarHeight）。
     // 取整方向要保守：宁可多留半个像素，也不能让 UI 压到系统 UI 上。
-    R.insetTop = Math.max(0, Math.ceil((R.statusBarH || 0) / s));
-    if (R.capsuleRect && R.capsuleRect.height > 0) {
+    R.insetTop = Math.max(0, Math.ceil(((R.statusBarH || 0) - oy) / s));
+
+    // 胶囊几何全部来自官方 getMenuButtonBoundingClientRect()：
+    //   capTop  = menuButton.top        官方·胶囊顶（相对屏幕）
+    //   capH    = menuButton.height     官方·胶囊高
+    //   capBottom = capTop + capH       官方·胶囊底（微信推荐的导航栏公式）
+    // 用「顶 + 高」而不是只读 bottom，是因为个别环境下 bottom 会比 top+高
+    // 飘一点；顶与高是最稳的两个值，底由它俩相加得出，最贴真实按钮。
+    if (R.capsuleRect && R.capsuleRect.height > 0 &&
+        (R.capsuleRect.top > 0 || R.capsuleRect.bottom > 0)) {
+      var capH = R.capsuleRect.height;
+      var capTop = R.capsuleRect.top > 0 ? R.capsuleRect.top : (R.capsuleRect.bottom - capH);
       R.capsuleLeft = Math.max(0, Math.floor(((R.capsuleRect.left || 0) - ox) / s));
-      R.capsuleBottom = Math.max(0, Math.ceil((R.capsuleRect.bottom || 0) / s));
+      R.capsuleBottom = Math.max(0, Math.ceil(((capTop - oy) / s) + capH / s));
+      // 兜底：若官方 bottom 比「顶+高」还靠下（矩形异常），以官方 bottom 为准，
+      // 保证顶部 UI 永远落在胶囊之下，绝不叠到胶囊上。
+      if (R.capsuleRect.bottom > 0) {
+        R.capsuleBottom = Math.max(R.capsuleBottom, Math.ceil((R.capsuleRect.bottom - oy) / s));
+      }
     } else {
       R.capsuleLeft = 0; R.capsuleBottom = 0;
     }
@@ -157,6 +177,18 @@
     R.canvas = canvas;
     R.ctx = ctx;
     R.fit();
+    /* 开发者工具冷启动首帧，getMenuButtonBoundingClientRect 常返回全 0，
+     * 上面那次 fit 会因此判成「无胶囊」，音效开关退回顶部压到胶囊上。
+     * 等首帧渲染过后再补读一次并重排（官方 API 此时已返回真实值），自愈。 */
+    if (isWeapp) {
+      try {
+        if (typeof wx.nextTick === 'function') {
+          wx.nextTick(function () { R.capsuleRect = readCapsule(); R.fit(); });
+        } else {
+          setTimeout(function () { R.capsuleRect = readCapsule(); R.fit(); }, 60);
+        }
+      } catch (e) { /* ignore */ }
+    }
     return R;
   };
 
@@ -190,8 +222,10 @@
      * 让 buildLayout 自己报「我需要多高」，而不是外部拍一个 1280 常数。 */
     var s = R.vw / R.W;
     var need = 1280;
+    if (isWeapp) R.capsuleRect = readCapsule(); // 开发者工具切机型后矩形要重取
     for (var pass = 0; pass < 5; pass++) {
       R.scale = s;
+      R.designH = Math.max(R.vh / s, need);  // syncInsets 的 oy 依赖它，先同步
       syncInsets();
       need = G.CFG.buildLayout(R.vh / s, R.insetTop, R.insetBottom, capArg()).neededH;
       if (R.vh / s >= need - 0.5) break;
@@ -199,6 +233,7 @@
     }
 
     R.scale = s;
+    R.designH = Math.max(R.vh / s, need);
     syncInsets();
     need = G.CFG.buildLayout(R.vh / s, R.insetTop, R.insetBottom, capArg()).neededH;
 

@@ -191,59 +191,38 @@
     // 大字号下它会和这些页面自己的按钮挤在同一块地方
     // （玩法页的返回药丸已经被 boot 自检抓到过一次），设置页里另有音效开关。
     if (game.state !== 'set' && game.state !== 'help' &&
-      game.state !== 'codex' && game.state !== 'pop') drawSoundBtn(ctx, game, LAY);
+      game.state !== 'codex' && game.state !== 'pop') drawSettingsBtn(ctx, game, LAY);
   };
 
-  /* ------------------------- 音效开关 ------------------------- */
-  function drawSoundBtn(ctx, game, LAY) {
-    var sb = LAY.soundBtn;
-    var A = G.Audio;
-    var m = A ? A.isMuted() : true;
-    var on = !m;
+  /* ------------------------- 设置按钮 ------------------------- */
+  function drawSettingsBtn(ctx, game, LAY) {
+    var sb = LAY.settingsBtn;
     var cy = sb.y + sb.h / 2;
-
     U.roundRect(ctx, sb.x, sb.y, sb.w, sb.h, S(14));
-    ctx.fillStyle = on ? 'rgba(95,200,255,0.13)' : CFG.C.offFill;
+    ctx.fillStyle = 'rgba(120,150,200,0.13)';
     ctx.fill();
-    ctx.strokeStyle = on ? 'rgba(143,230,255,0.62)' : 'rgba(140,160,190,0.35)';
+    ctx.strokeStyle = 'rgba(150,190,255,0.40)';
     ctx.lineWidth = 1.8;
     ctx.stroke();
 
-    /* 喇叭：自绘几何图形，不用任何图标字体。按钮只有 100 宽，
-     * 放不下「音效 开」四个大字，所以只留图标 + 一个字的开关状态。
-     * 图形整体按按钮高度等比缩放（u），字号一变图标不会还是个小米粒。 */
-    var u = sb.h / 54;
+    /* 齿轮：自绘几何，不依赖图标字体。放在胶囊下方右侧空档，不挡战斗 */
+    var u = sb.h / 54, cx = sb.x + 26 * u;
     ctx.save();
-    ctx.translate(sb.x + 30 * u, cy);
+    ctx.translate(cx, cy);
     ctx.scale(u, u);
-    ctx.fillStyle = on ? '#8fe6ff' : '#93a5c2';
-    ctx.beginPath();
-    ctx.moveTo(-5, -3);
-    ctx.lineTo(-1, -3);
-    ctx.lineTo(5, -8);
-    ctx.lineTo(5, 8);
-    ctx.lineTo(-1, 3);
-    ctx.lineTo(-5, 3);
-    ctx.closePath();
-    ctx.fill();
-
-    if (on) {
-      ctx.strokeStyle = 'rgba(143,230,255,0.9)';
-      ctx.lineWidth = 1.8;
-      ctx.beginPath(); ctx.arc(2, 0, 6, -0.95, 0.95); ctx.stroke();
-      ctx.beginPath(); ctx.arc(2, 0, 10, -0.9, 0.9); ctx.stroke();
-    } else {
-      ctx.strokeStyle = 'rgba(255,125,140,0.9)';
-      ctx.lineWidth = 2.2;
-      ctx.lineCap = 'round';
-      ctx.beginPath(); ctx.moveTo(6, -7); ctx.lineTo(15, 7); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(15, -7); ctx.lineTo(6, 7); ctx.stroke();
-      ctx.lineCap = 'butt';
+    ctx.fillStyle = '#9fd0ff';
+    for (var gi = 0; gi < 8; gi++) {
+      ctx.save();
+      ctx.rotate(gi / 8 * Math.PI * 2);
+      ctx.fillRect(-2.4, -13, 4.8, 6);
+      ctx.restore();
     }
+    ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = CFG.C.board;
+    ctx.beginPath(); ctx.arc(0, 0, 3.4, 0, Math.PI * 2); ctx.fill();
     ctx.restore();
 
-    txt(ctx, on ? '开' : '关', sb.x + 72, cy, 13,
-      on ? '#cdefff' : CFG.C.dim, 'center', 'bold');
+    txt(ctx, '设置', sb.x + 64, cy, 13, '#cfe3ff', 'center', 'bold');
   }
 
   /* ---------------------------- 棋盘 ---------------------------- */
@@ -310,13 +289,7 @@
      * 又给底部那一行留出余地 —— 浮动提示压在棋盘底时不会盖到这两个字。 */
     txt(ctx, '核心', mx, my - S(48), 13, 'rgba(180,240,255,0.8)', 'center');
 
-    // 脉冲瞄准提示
-    if (game.pulseMode) {
-      ctx.strokeStyle = 'rgba(159,216,255,0.55)';
-      ctx.lineWidth = 2;
-      U.roundRect(ctx, bx - 3, by - 3, LAY.boardW + 6, LAY.boardH + 6, 18);
-      ctx.stroke();
-    }
+    // 脉冲瞄准提示已随脉冲一起移除
   }
 
   /* --------------------------- 共振网络 --------------------------- */
@@ -918,16 +891,14 @@
       hpPct > 0.35 ? '#2ee6a8' : '#ff5d6c', '#8ef7d8', CFG.C.barTrack);
     txt(ctx, Math.ceil(game.coreHp) + ' / ' + game.coreMax, 428, H.hpLabel, 14, CFG.C.text, 'right', 'bold');
 
-    // 回声充能
-    txt(ctx, '回声充能', 40, H.ecLabel, 13, CFG.C.dim);
-    var ep = game.echo / CFG.ECHO.max;
-    bar(ctx, LAY.ecBar.x, LAY.ecBar.y, LAY.ecBar.w, LAY.ecBar.h, ep, '#2f8fff', '#8fe6ff');
-    txt(ctx, ep >= 1 ? '就绪' : Math.floor(ep * 100) + '%', 428, H.ecLabel, 14,
-      ep >= 1 ? '#8fe6ff' : CFG.C.text, 'right', 'bold');
+    // 回声充能条已随倒带机制一起移除
 
     // 能量
     txt(ctx, '能量', hr, H.energyLabel, 13, CFG.C.dim, 'right');
-    txt(ctx, String(Math.floor(game.energy)), hr, H.energyVal, 30, '#ffd27a', 'right', 'bold');
+    /* 字号 30 → 20：能量是四位数，30 号时数字会向左压到血条那一列（遮挡），
+     * 缩小后不碍事。**必须是字号表里有的值** —— 22 / 26 这类不在表里的数会走
+     * FONT_K 兜底（22 → 实际 60px），比原来还大，font-check 会直接报出来。 */
+    txt(ctx, String(Math.floor(game.energy)), hr, H.energyVal, 20, '#ffd27a', 'right', 'bold');
 
     // 开波按钮
     if (game.state === 'prep') {
@@ -955,10 +926,7 @@
       ctx.lineWidth = 2.2;
       ctx.stroke();
       txt(ctx, '剩余目标 ' + left, r2.x + S(20), r2.y + r2.h / 2, 18, CFG.C.dim, 'left');
-      if (game.echoBuffT > 0) {
-        txt(ctx, '回声后遗症 +18% 敌方移速 ' + game.echoBuffT.toFixed(1) + 's',
-          r2.x + r2.w - S(20), r2.y + r2.h / 2, 12, '#ff9d6b', 'right');
-      }
+    // 回声后遗症提示已随倒带一起移除
     }
   }
 
@@ -987,18 +955,6 @@
       sub = String(d.cost);
       active = game.selCard === kind.key;
       disabled = game.energy < d.cost;
-    } else if (kind.type === 'pulse') {
-      col = '#5fc8ff';
-      title = '脉冲';
-      sub = String(CFG.PULSE.cost);
-      active = game.pulseMode;
-      disabled = game.energy < CFG.PULSE.cost;
-    } else {
-      col = '#8fe6ff';
-      title = '倒带';
-      sub = '4s';
-      disabled = game.echo < CFG.ECHO.max;
-      active = game.echo >= CFG.ECHO.max;
     }
 
     ctx.globalAlpha = disabled ? 0.42 : 1;
@@ -1009,44 +965,14 @@
     ctx.lineWidth = active ? 2.5 : 1.5;
     ctx.stroke();
 
-    /* 卡片内容：图标在中上、卡名居中、副标题（价格/状态）在下。
-     * 冰塔下线后卡宽从 129 涨到 164（更早「一行 9 张」时只有 72），图标仍按 S(15) 画，
-     * 所以卡变宽后图标相对显小 —— 要放大只改这里的 S(15) 即可（卡内三行都随 S/F 缩放，
-     * layout-check 的「卡名不与图标叠」会拦住放过头的情况）。
-     * 三行的 y 与卡高 S(104) 是一套数，改一个就得同步改 config.js 里的 cardH。 */
     var icx = r.x + r.w / 2, icy = r.y + S(26);
     if (kind.type === 'tower') {
       elemIcon(ctx, CFG.TOWERS[kind.key].elem, icx, icy, S(15));
-    } else if (kind.type === 'pulse') {
-      ctx.strokeStyle = col; ctx.lineWidth = 2.4;
-      for (var k = 0; k < 3; k++) {
-        ctx.beginPath();
-        ctx.arc(icx, icy, S(5) + k * S(4), 0, Math.PI * 2);
-        ctx.stroke();
-      }
-    } else {
-      var p = game.echo / CFG.ECHO.max;
-      var bx = icx - S(17), by = icy - S(15), bw = S(34), bh = S(30), br = S(8);
-      U.roundRect(ctx, bx, by, bw, bh, br);
-      ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fill();
-      /* 充能进度 = 图标框的边框本身：按圆角矩形周长比例画实线，
-       * 剩下的用虚线间隔藏起来。卡片顶边只剩 S(9) 余量，
-       * 横条会顶到图标框上（挤），这样画完全不额外占地方。 */
-      var per = 2 * (bw + bh) - 8 * br + 2 * Math.PI * br;
-      ctx.strokeStyle = col;
-      ctx.lineWidth = 2;
-      var dash = (typeof ctx.setLineDash === 'function');
-      if (dash) ctx.setLineDash([per * U.clamp(p, 0, 1), per]);
-      U.roundRect(ctx, bx, by, bw, bh, br);
-      ctx.stroke();
-      if (dash) ctx.setLineDash([]);
-      U.poly(ctx, icx, icy, S(8), 3, -Math.PI / 2);
-      ctx.fillStyle = col; ctx.fill();
     }
 
     txt(ctx, title, r.x + r.w / 2, r.y + S(58), 15, CFG.C.text, 'center', 'bold');
-    txt(ctx, kind.type === 'echo' ? (disabled ? '未充能' : '就绪') : '◈ ' + sub,
-      r.x + r.w / 2, r.y + S(84), 12, disabled ? CFG.C.dim : '#ffd27a', 'center', kind.type === 'echo' ? '' : 'bold');
+    txt(ctx, '◈ ' + sub, r.x + r.w / 2, r.y + S(84), 12,
+      disabled ? CFG.C.dim : '#ffd27a', 'center', 'bold');
     ctx.globalAlpha = 1;
   }
 
@@ -1347,19 +1273,36 @@
     panel(ctx, 66, oy + S(16), 588, S(516));
     var col = win ? '#2ee6a8' : '#ff5d6c';
     str(ctx, win ? '防线守住了' : '核心被击穿', 360, oy + S(74), 34, col, 'center', 'bold', 6);
-    txt(ctx, win ? '20 波全部清空' : '防线在第 ' + game.wave + ' 波崩溃', 360, oy + S(118), 16, CFG.C.dim, 'center');
+    /* 副标题位：有「本局新解锁」时改报解锁（那是成长系统里最该被看见的一刻，
+     * 而「20 波全部清空」与下面数据行的「坚守波次」本来就是重复信息），
+     * 平时保持原样。做成改写而不是新增一行 —— 副标题与首行数据之间只有
+     * S(52) 的纵向余量，塞第三行字在大字号档下必挤（S 与 F 不同源，量出来的）。 */
+    var lg = game.lastGain;
+    var subLine = win ? '20 波全部清空' : '防线在第 ' + game.wave + ' 波崩溃';
+    var subCol = CFG.C.dim;
+    if (lg && lg.unlocked && lg.unlocked.length) {
+      var unames = [];
+      for (var u = 0; u < lg.unlocked.length; u++) unames.push(lg.unlocked[u].name);
+      subLine = '解锁 · ' + unames.join(' / ');
+      subCol = '#7ef2c0';
+    }
+    txt(ctx, subLine, 360, oy + S(118), 16, subCol, 'center', subCol === CFG.C.dim ? '' : 'bold');
 
     var rows = [
       ['最终得分', String(game.score)],
       ['坚守波次', game.wave + ' / ' + game.wavesTotal],
       ['击杀总数', String(game.kills)],
       ['漏怪数量', String(game.leaked)],
+      ['本局回响点', '+' + (lg ? lg.gain : 0)],
       ['历史最高', String(game.best)]
     ];
+    /* 行距 52 → 44：多了「本局回响点」一行，得把六行塞进按钮上方的空间。
+     * 44 对 16/20 号字仍有富余（原 52 是给五行留的），版式自检按文本高度量，过不了会报。 */
     for (var i = 0; i < rows.length; i++) {
-      var y = oy + S(170 + i * 52);
-      txt(ctx, rows[i][0], 140, y, 16, CFG.C.dim);
-      txt(ctx, rows[i][1], 580, y, 20, CFG.C.text, 'right', 'bold');
+      var y = oy + S(170 + i * 44);
+      var hot = rows[i][0] === '本局回响点';
+      txt(ctx, rows[i][0], 140, y, 16, hot ? '#7ef2c0' : CFG.C.dim);
+      txt(ctx, rows[i][1], 580, y, hot ? 24 : 20, hot ? '#7ef2c0' : CFG.C.text, 'right', 'bold');
     }
 
     var b = G.UI.againBtn();
@@ -1414,14 +1357,18 @@
   function drawCodex(ctx, game, LAY) {
     pageBg(ctx, LAY);
     var oy = LAY.codexTop;
-    var tab = game.codexTab === 1 ? 1 : 0;
+    /* 三个 tab：0 怪物 / 1 炮台 / 2 回响档案。越界值一律夹回 0，
+     * 免得存档或状态串味时画出空白页。 */
+    var tab = Math.max(0, Math.min(2, game.codexTab || 0));
     var enemies = G.Codex.enemyKeys();
     var towers = G.Codex.towerKeys();
 
     str(ctx, '图鉴', 40, oy + S(46), 34, '#e9f2ff', 'left', 'bold', 6);
     txt(ctx, tab === 0
       ? 'C O D E X · 已遭遇 ' + G.Codex.seenCount() + ' / ' + enemies.length + ' 种'
-      : 'C O D E X · ' + towers.length + ' 座炮台与元素反应',
+      : tab === 1
+        ? 'C O D E X · ' + towers.length + ' 座炮台与元素反应'
+        : 'E C H O   P R O F I L E · 累计回响点 ' + (G.Profile ? G.Profile.pts() : 0),
       40, oy + S(86), 12, '#5fc8ff', 'left', 'bold');
     ghostBtn(ctx, G.UI.codexBack(), '返回', 18, '#8fe6ff');
 
@@ -1445,6 +1392,13 @@
         on ? '#cdefff' : CFG.C.dim, 'center', 'bold');
     }
 
+    /* 第三页：回响档案。整页只有一个可交互控件（深渊开关），三条解锁线是纯展示，
+     * 所以在 tab 判定处就分流，不走下面的「格子 / 详情」逻辑。 */
+    if (tab === 2) {
+      drawProfile(ctx, game);
+      return;
+    }
+
     if (game.codexSel) {
       if (tab === 0) drawCodexEnemyDetail(ctx, G.Codex.enemy(game.codexSel), game);
       else drawCodexTowerDetail(ctx, G.Codex.tower(game.codexSel), game);
@@ -1461,11 +1415,116 @@
       360, G.UI.codexHint().y, 12, CFG.C.dim, 'center');
   }
 
+  /* —— 回响档案：图鉴第三页（成长系统） ——
+   * 结构与另两页不同：没有格子、没有详情，只有「一张总览卡 + 三条解锁线
+   * + 战功录 + 一个开关」。三条线的门槛是累计制，所以画的是**进度**而不是价格。 */
+  function drawProfile(ctx, game) {
+    var P = G.Profile;
+    if (!P) return;                    // 模块缺失时静默不画（兜底，正常不会发生）
+    var COL = CFG.C;
+    var pts = P.pts();
+
+    /* 1) 回响点总览。结算公式那行是特意写出来的 ——
+     * 玩家要能自己算出「再打几局能解锁」，成长感才成立。 */
+    var c = G.UI.profileCard();
+    glowPanel(ctx, c, S(16), 'rgba(42,60,94,0.9)', 'rgba(126,242,192,0.16)',
+      'rgba(126,242,192,0.45)', 2);
+    txt(ctx, '累计回响点', c.x + S(24), c.y + S(34), 14, COL.dim, 'left');
+    txt(ctx, String(pts), c.x + c.w - S(24), c.y + S(56), 34, '#7ef2c0', 'right', 'bold');
+    txt(ctx, '每局结算：波次 × 12 + 击杀 ÷ 8 − 漏怪 × 15 · 通关额外 +200',
+      c.x + S(24), c.y + S(84), 12, COL.dim, 'left');
+
+    /* 2) 三条解锁线：名称 / 描述 / 当前档 / 下一档门槛 / 进度条。
+     * 进度按「当前档门槛 → 下一档门槛」算，所以每一条读出来都是「还差多少」。 */
+    var lines = CFG.UNLOCKS;
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      var r = G.UI.profileLine(i);
+      var ti = P.tierOf(line);
+      var done = P.has(line.key);
+      var curAt = ti >= 0 ? line.tiers[ti].at : 0;
+      var next = ti + 1 < line.tiers.length ? line.tiers[ti + 1] : null;
+      var lastLabel = line.tiers[line.tiers.length - 1].label;
+      var curLabel = line.tiers[ti >= 0 ? ti : 0].label;
+
+      panel(ctx, r.x, r.y, r.w, r.h, 'rgba(36,53,84,0.9)');
+      U.roundRect(ctx, r.x, r.y, r.w, r.h, S(12));
+      ctx.strokeStyle = done ? U.hexToRgba(line.color, 0.55) : 'rgba(140,160,190,0.22)';
+      ctx.lineWidth = done ? 1.6 : 1;
+      ctx.stroke();
+
+      txt(ctx, line.name, r.x + S(16), r.y + S(30), 17,
+        done ? line.color : COL.text, 'left', 'bold');
+      txt(ctx, line.desc, r.x + S(16), r.y + S(52), 12, COL.dim, 'left');
+
+      txt(ctx, done ? '已解锁' : '下一档 ' + next.at + ' 点',
+        r.x + r.w - S(16), r.y + S(30), 14, done ? '#7ef2c0' : COL.text, 'right', 'bold');
+      /* 档位进度只对多档线有意义。单档线（凝霜 / 深渊）写成「上架 / 上架」
+       * 「开启 / 开启」是废话 —— 那两条的右列只留「已解锁 / 下一档 N 点」。 */
+      if (line.tiers.length > 1) {
+        txt(ctx, curLabel + ' / ' + lastLabel,
+          r.x + r.w - S(16), r.y + S(52), 12, COL.dim, 'right');
+      }
+
+      var b = G.UI.profileBar(i);
+      var pct = 1;
+      if (next) {
+        pct = (pts - curAt) / Math.max(1, next.at - curAt);
+        if (pct < 0) pct = 0;
+        if (pct > 1) pct = 1;
+      }
+      bar(ctx, b.x, b.y, b.w, b.h, pct, line.color, line.color);
+    }
+
+    /* 3) 战功录：一行四格，上标签下数值。纯展示，不可点。 */
+    var st = P.stats();
+    var sb = G.UI.profileStats();
+    panel(ctx, sb.x, sb.y, sb.w, sb.h, 'rgba(36,53,84,0.9)');
+    txt(ctx, '战功录', sb.x + S(16), sb.y + S(32), 15, COL.text, 'left', 'bold');
+    var cells = [
+      ['开局次数', String(st.runs)],
+      ['累计击杀', String(st.kills)],
+      ['通关次数', String(st.wins)],
+      ['最高波次', st.best + ' / ' + CFG.TOTAL_WAVES]
+    ];
+    var cw = (sb.w - S(32)) / cells.length;
+    for (var k = 0; k < cells.length; k++) {
+      var cx = sb.x + S(16) + k * cw;
+      txt(ctx, cells[k][0], cx, sb.y + S(76), 12, COL.dim, 'left');
+      txt(ctx, cells[k][1], cx, sb.y + S(110), 20, COL.text, 'left', 'bold');
+    }
+
+    /* 4) 深渊开关。没解锁也画（写明门槛），让玩家知道上面还有一层。 */
+    var db = G.UI.profileDeepBtn();
+    var unlocked = P.has('deep');
+    var on = P.deepOn();
+    var gate = 0;
+    for (var q = 0; q < CFG.UNLOCKS.length; q++) {
+      if (CFG.UNLOCKS[q].key === 'deep') gate = CFG.UNLOCKS[q].tiers[0].at;
+    }
+    btn(ctx, db, unlocked
+      ? (on ? '深渊 · 已开启' : '深渊 · 未开启')
+      : '深渊 · ' + gate + ' 点解锁',
+      unlocked, on ? '#ff4d6d' : '#8fa6c8');
+    if (unlocked) {
+      /* 深渊成绩单独立榜，所以这里必须把 deepBest 带出来 —— 只说「独立记录」
+       * 而不给数字，玩家不知道该去哪看自己的深渊成绩。未打过就不显示数字。 */
+      var deepLine = '开启后下一局生效 · 敌人血量 ×' + CFG.DEEP.hpMul;
+      deepLine += st.deepBest > 0
+        ? ' · 深渊最深 ' + st.deepBest + ' 波'
+        : '，成绩独立记录';
+      txt(ctx, deepLine, db.x + db.w / 2, db.y + db.h + S(22), 12, COL.dim, 'center');
+    }
+
+    txt(ctx, '三条解锁线按累计回响点自动开启，不需要选择花费',
+      360, G.UI.codexHint().y, 12, COL.dim, 'center');
+  }
+
   /* —— 图鉴：怪物格子（未遭遇 → 三个问号） —— */
   function drawCodexEnemyCell(ctx, rc, key, t) {
     var seen = G.Codex.isSeen(key);
     var d = CFG.ENEMIES[key];
-    var cx = rc.x + rc.w / 2, icy = rc.y + S(88);
+    var cx = rc.x + rc.w / 2, icy = rc.y + S(64);
     var col = seen ? d.color : '#93a7c6';
 
     glowPanel(ctx, rc, S(18), seen ? 'rgba(42,60,94,0.9)' : 'rgba(24,36,58,0.8)',
@@ -1473,15 +1532,17 @@
       seen ? U.hexToRgba(d.color, 0.5) : 'rgba(150,190,255,0.16)', seen ? 2 : 1.5);
 
     if (seen && G.Monsters) {
-      G.Monsters.draw(ctx, codexMonster(key, cx, icy + S(12), S(34)), t, 1);
+      G.Monsters.draw(ctx, codexMonster(key, cx, icy + S(10), S(30)), t, 1);
     } else {
       // 未遭遇：一个大问号当「剪影」，不是把真身涂黑（涂黑会被认成已解锁）
+      // 字号 46 是字号表里最大的一档 —— 表外的值（如 40）会走 FONT_K 兜底被放大 1.5 倍，
+      // 看起来「反而更大」，font-check 的「用到的字号都在表里」就是防这个。
       txt(ctx, '?', cx, icy + S(4), 46, 'rgba(139,160,198,0.30)', 'center', 'bold');
     }
-    txt(ctx, seen ? d.name : '? ? ?', cx, rc.y + S(168), 17,
+    txt(ctx, seen ? d.name : '? ? ?', cx, rc.y + S(150), 17,
       seen ? CFG.C.text : '#9db0cf', 'center', 'bold');
     txt(ctx, seen ? G.Codex.enemy(key).role : '未遭遇',
-      cx, rc.y + S(196), 12, seen ? col : '#93a7c6', 'center');
+      cx, rc.y + S(172), 12, seen ? col : '#93a7c6', 'center');
   }
 
   /* —— 图鉴：炮台格子 —— */
@@ -1491,11 +1552,11 @@
     var cx = rc.x + rc.w / 2;
     glowPanel(ctx, rc, S(18), 'rgba(42,60,94,0.9)', U.hexToRgba(info.color, 0.20),
       U.hexToRgba(info.color, 0.5), 2);
-    elemIcon(ctx, info.elem, cx, rc.y + S(84), S(30), info.soft);
-    txt(ctx, info.name, cx, rc.y + S(168), 17, CFG.C.text, 'center', 'bold');
-    /* 副标题只写「造价 · 攻击方式」：格宽 204 在放大的字号档下容不下
+    elemIcon(ctx, info.elem, cx, rc.y + S(80), S(28), info.soft);
+    txt(ctx, info.name, cx, rc.y + S(150), 17, CFG.C.text, 'center', 'bold');
+    /* 副标题只写「造价 · 攻击方式」：格宽 204 在放大的字号档下容得下
      * 「60 能量 · 连锁闪电」这种长串（layout-check 的「格宽容得下副标题」量着） */
-    txt(ctx, info.cost + ' · ' + info.kind, cx, rc.y + S(196), 12, CFG.C.dim, 'center');
+    txt(ctx, info.cost + ' · ' + info.kind, cx, rc.y + S(172), 12, CFG.C.dim, 'center');
   }
 
   /* —— 图鉴：怪物详情 —— */

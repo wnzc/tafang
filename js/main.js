@@ -27,13 +27,8 @@
     spawnIdx: 0,
     waveTime: 0,
     prepT: 0,
-    echo: 0,
-    echoBuffT: 0,
-    snaps: [],
-    snapT: 0,
     sel: null,
     selCard: null,
-    pulseMode: false,
     shake: 0,
     redFlash: 0,
     whiteFlash: 0,
@@ -41,6 +36,9 @@
     toastMsg: '',
     toastT: 0,
     best: 0,
+    /* —— 成长系统（回响档案）—— */
+    deep: false,            // 本局是否深渊档：开局按存档定，局中不变
+    lastGain: null,         // 上一局的结算结果 { gain, unlocked, changed }，结算面板用
     bannerT: 0,
     bannerMsg: '',
     /* —— 图鉴 —— */
@@ -80,13 +78,8 @@
     g.spawnIdx = 0;
     g.waveTime = 0;
     g.prepT = 0;
-    g.echo = 0;
-    g.echoBuffT = 0;
-    g.snaps.length = 0;
-    g.snapT = 0;
     g.sel = null;
     g.selCard = null;
-    g.pulseMode = false;
     g.shake = 0;
     g.redFlash = 0;
     g.whiteFlash = 0;
@@ -94,6 +87,8 @@
     g.toastT = 0;
     g.bannerT = 0;
     g.hidden = false;
+    g.deep = false;
+    g.lastGain = null;
     /* 图鉴的选中项与待弹队列要清；已解锁记录不动 —— 那是跨局的（存在 echo_seen 里） */
     g.codexSel = null;
     g.codexQueue.length = 0;
@@ -106,12 +101,26 @@
   };
 
   G.Game.startRun = function () {
+    /* 开局先对齐一次版式：上一局结算若解锁了「凝霜」，上架塔表会多一座，
+     * 卡片数与建造栏高度都得重算。fit 是幂等的，一局跑一次不心疼 ——
+     * 与其在各处埋「记得重排」的坑，不如开局统一对齐一次。 */
+    if (R.fit) R.fit();
+
     game.state = 'prep';
     game.prepT = CFG.PREP_TIME;
-    game.bannerMsg = '备战 · 第 1 波';
+    /* 本局随机种子：roguelike 的「每局不一样」靠它。每波的地脉突变与敌群组合
+     * 都由 (seed, 波次) 决定，同一局全程一致、可复现。 */
+    game.seed = (Math.random() * 2147483647) | 0;
+    /* 深渊档：开局按存档定，局中不改 —— 中途切换会让前后波次不同档，
+     * 排行榜也没法解释。玩家在档案页开关，下一局生效。 */
+    game.deep = !!(G.Profile && G.Profile.deepOn && G.Profile.deepOn());
+    game.lastGain = null;
+    game.bannerMsg = game.deep ? '深渊 · 第 1 波' : '备战 · 第 1 波';
     game.bannerT = 2.2;
-    game.toastMsg = '点下方卡片选塔 → 点棋盘空格建造';
-    game.toastT = 4.5;
+    game.toastMsg = game.deep
+      ? '深渊档：敌人血量 ×' + CFG.DEEP.hpMul + '｜独立计榜'
+      : '点下方卡片选塔 → 点棋盘空格建造';
+    game.toastT = game.deep ? 3.6 : 4.5;
   };
 
   G.Game.toast = function (msg) {
@@ -246,7 +255,6 @@
       game.kills++;
       game.energy += e.reward;
       game.score += e.reward * 2;
-      game.echo = Math.min(CFG.ECHO.max, game.echo + CFG.ECHO.perKill);
 
       if (e.def.boss) {
         G.FX.explode(e.x, e.y, e.color, 150, 3);
@@ -297,11 +305,26 @@
     }
   };
 
+  /**
+   * 一局结束的档案结算。失败也结算 —— 「打不过也有进展」是回响点设计的一部分。
+   * 结果挂到 game.lastGain 给结算面板用：gain 是本局拿到的点数，
+   * unlocked 是本次新解锁的线（用来在面板上提示「解锁了 XX」）。
+   */
+  function settleRun(isWin) {
+    if (!G.Profile || !G.Profile.settle) return;
+    game.lastGain = G.Profile.settle(game, isWin);
+  }
+
   G.Game.gameOver = function () {
     game.state = 'over';
     game.redFlash = 1;
     game.whiteFlash = 0.7;
-    if (game.score > game.best) { game.best = game.score; R.store.set('echo_best', game.score); }
+    /* 深渊局不计常规最高分：它是另一条难度线，混进 echo_best 会把常规榜弄脏
+     * （深渊通关的分数天然更高）。深渊自己的最好成绩记在档案的 deepBest。 */
+    if (!game.deep && game.score > game.best) {
+      game.best = game.score; R.store.set('echo_best', game.score);
+    }
+    settleRun(false);
     A('over');
     R.buzz('heavy');
   };
@@ -309,130 +332,15 @@
   G.Game.win = function () {
     game.state = 'win';
     game.whiteFlash = 0.8;
-    if (game.score > game.best) { game.best = game.score; R.store.set('echo_best', game.score); }
+    if (!game.deep && game.score > game.best) {
+      game.best = game.score; R.store.set('echo_best', game.score);
+    }
+    settleRun(true);
     A('win');
     R.buzz('heavy');
   };
 
-  /* ------------------------------------------------------------------ */
-  /*  主动技能：共振脉冲                                                   */
-  /* ------------------------------------------------------------------ */
-  G.Game.castPulse = function (x, y) {
-    if (game.energy < CFG.PULSE.cost) { G.Game.toast('能量不足'); A('deny'); return; }
-    game.energy -= CFG.PULSE.cost;
-    var arr = game.enemies;
-    var n = 0;
-    for (var i = 0; i < arr.length; i++) {
-      var e = arr[i];
-      if (!e.alive) continue;
-      if (U.dist(e.x, e.y, x, y) > CFG.PULSE.radius + e.r) continue;
-      G.Game.damageEnemy(e, CFG.PULSE.dmg, '#9fd8ff');
-      e.stunT = Math.max(e.stunT, CFG.PULSE.stun);
-      G.FX.ring(e.x, e.y, 4, 30, '#9fd8ff', 0.36, 2.5);
-      n++;
-    }
-    G.FX.shock(x, y, CFG.PULSE.radius, '#9fd8ff', 0.55, 5);
-    G.FX.shock(x, y, CFG.PULSE.radius * 0.62, '#ffffff', 0.34, 3);
-    G.FX.spark(x, y, 0, Math.PI * 2, 18, '#cfeaff', 260, 0.5);
-    G.FX.ember(x, y, 12, '#9fd8ff');
-    if (n) G.FX.pop(x, y - 26, '震击 ' + n, '#cfeaff', 18);
-    game.shake = Math.max(game.shake, 6);
-    game.hitStop = Math.max(game.hitStop, 0.05);
-    A('pulse');
-    R.buzz('medium');
-  };
-
-  /* ------------------------------------------------------------------ */
-  /*  核心特色：回声倒带                                                   */
-  /* ------------------------------------------------------------------ */
-  function takeSnapshot() {
-    var g = game;
-    var s = {
-      core: g.coreHp, energy: g.energy, score: g.score,
-      enemies: [], towers: []
-    };
-    var i;
-    for (i = 0; i < g.enemies.length; i++) s.enemies.push(G.Enemies.snapshot(g.enemies[i]));
-    for (i = 0; i < g.towers.length; i++) {
-      var t = g.towers[i];
-      s.towers.push({ key: t.key, col: t.col, row: t.row, level: t.level, hp: t.hp, spent: t.spent });
-    }
-    return s;
-  }
-
-  G.Game.castEcho = function () {
-    if (game.echo < CFG.ECHO.max) {
-      G.Game.toast('回声充能不足 ' + Math.floor(game.echo) + '%');
-      A('deny');
-      R.buzz('heavy');
-      return;
-    }
-    if (!game.snaps.length) { G.Game.toast('无可回溯的记录'); A('deny'); return; }
-    var s = game.snaps[0];
-    game.snaps.length = 0;
-    game.snapT = 0;
-
-    // 还原数值
-    game.coreHp = s.core;
-    game.energy = s.energy;
-    game.score = s.score;
-
-    // 还原塔
-    var i, t;
-    var newTowers = [];
-    for (i = 0; i < s.towers.length; i++) {
-      var st = s.towers[i];
-      t = G.Towers.create(st.key, st.col, st.row);
-      t.level = st.level;
-      t.maxHp = G.Towers.maxHp(t);
-      t.hp = Math.min(st.hp, t.maxHp);
-      t.spent = st.spent;
-      newTowers.push(t);
-    }
-    game.towers = newTowers;
-    Grid.recompute(game.towers);
-
-    // 还原敌人
-    var live = {};
-    for (i = 0; i < game.enemies.length; i++) live[game.enemies[i].uid] = game.enemies[i];
-    var out = [];
-    for (i = 0; i < s.enemies.length; i++) {
-      var se = s.enemies[i];
-      var e = live[se.uid];
-      if (!e) e = G.Enemies.rebuild(se);
-      G.Enemies.restore(e, se);
-      out.push(e);
-    }
-    game.enemies = out;
-    game.bullets.length = 0;
-
-    // 后遗症：敌人适应加速
-    game.echoBuffT = CFG.ECHO.buffTime;
-    game.echo = 0;
-    game.sel = null;
-    game.selCard = null;
-    game.pulseMode = false;
-    G.Resonance.rebuild(game);
-
-    // 倒带视觉：向内收束的时间环 + 全屏冷闪
-    var cx0 = CENTER_X(), cy0 = CENTER_Y();
-    G.FX.shock(cx0, cy0, 300, '#8fe6ff', 0.95, 6);
-    G.FX.shock(cx0, cy0, 190, '#ffffff', 0.6, 3);
-    G.FX.ring(cx0, cy0, 20, 620, '#8fe6ff', 0.9, 6);
-    G.FX.ring(cx0, cy0, 10, 420, '#ffffff', 0.6, 3);
-    G.FX.spark(cx0, cy0, 0, Math.PI * 2, 30, '#bfeeff', 340, 0.85);
-    for (var q = 0; q < 8; q++) {
-      var qa = q / 8 * Math.PI * 2;
-      G.FX.ember(cx0 + Math.cos(qa) * 120, cy0 + Math.sin(qa) * 120, 3, '#8fe6ff');
-    }
-    game.shake = 13;
-    game.whiteFlash = 0.45;
-    game.hitStop = 0.08;
-    game.bannerMsg = '回声倒带 · 时间回退 4 秒';
-    game.bannerT = 1.8;
-    A('echo');
-    R.buzz('heavy');
-  };
+  /* 主动技能（脉冲）与回声倒带已移除：玩法只用炮塔，靠建造 / 共振 / 元素反应通关 */
 
   function CENTER_X() { return CFG.BX + CFG.BOARD_W / 2; }
   function CENTER_Y() { return G.LAY.boardY + CFG.BOARD_H / 2; }
@@ -449,11 +357,12 @@
       G.FX.text(CENTER_X(), G.LAY.boardY + 70, '提前开波 +' + bonus, '#7ef2c0', 20);
     }
     game.wave++;
-    game.waveData = G.Waves.plan(game.wave);
+    game.waveData = G.Waves.plan(game.wave, game.seed, game.deep);
     game.spawnIdx = 0;
     game.waveTime = 0;
     game.state = 'wave';
-    game.bannerMsg = '第 ' + game.wave + ' 波 · ' + game.waveData.name;
+    game.bannerMsg = '第 ' + game.wave + ' 波 · ' + game.waveData.name +
+      (game.waveData.mutName ? '｜' + game.waveData.mutName : '');
     game.bannerT = 2.2;
     /* Boss 波给一条「怎么打」的提示。
      * 会这么写是因为实测过：Boss 的护甲把低伤塔压到 1 点，玩家的第一反应
@@ -463,6 +372,9 @@
     if (game.waveData.isBoss) {
       game.toastMsg = 'Boss 来袭：元素反应无视护甲|别把塔贴在它的行进路线上';
       game.toastT = 4.5;
+    } else if (game.waveData.mutName) {
+      game.toastMsg = '地脉突变：' + game.waveData.mutName;
+      game.toastT = 3.5;
     }
     G.FX.shock(CFG.BX + CFG.BOARD_W / 2, G.LAY.boardY + 10, 220, '#ff8f9b', 0.6, 4);
     A('waveStart');
@@ -470,17 +382,18 @@
   };
 
   function waveComplete() {
-    game.echo = Math.min(CFG.ECHO.max, game.echo + CFG.ECHO.perWave);
     game.score += 60 + game.wave * 20;
-    game.energy += 42 + game.wave * 8;
-    var gain = 42 + game.wave * 8;
+    /* 单一口径：飘字与实际发放同源。别再把公式抄两遍 —— 上一轮把奖励从
+     * 42+8n 提到 60+12n 时只改了发放处，飘字少报了一路，属于典型的双写脱节。 */
+    var waveGain = 60 + game.wave * 12;
+    game.energy += waveGain;
     G.FX.ripple(CENTER_X(), CENTER_Y(), 220, '#7ef2c0');
     G.FX.shock(CENTER_X(), CENTER_Y(), 300, '#7ef2c0', 0.7, 5);
     G.FX.spark(CENTER_X(), CENTER_Y(), -Math.PI / 2, Math.PI, 20, '#9dffd8', 280, 0.7);
     G.FX.ember(CENTER_X(), CENTER_Y(), 14, '#7ef2c0');
     // 字号用 24 而不是原来的 23：23 不在字号表里，会走兜底倍率，
     // 换档时这一处会和其他文字脱节（font-check 现在会把特效字号也录进去）
-    G.FX.pop(CENTER_X(), CENTER_Y(), '波次清空 +' + gain, '#7ef2c0', 24);
+    G.FX.pop(CENTER_X(), CENTER_Y(), '波次清空 +' + waveGain, '#7ef2c0', 24);
     game.whiteFlash = 0.22;
     A('waveClear');
     if (game.wave >= game.wavesTotal) { G.Game.win(); return; }
@@ -505,8 +418,6 @@
     if (g.whiteFlash > 0) g.whiteFlash = Math.max(0, g.whiteFlash - dt * 2.6);
     if (g.toastT > 0) g.toastT -= dt;
     if (g.bannerT > 0) g.bannerT -= dt;
-    if (g.echoBuffT > 0) g.echoBuffT = Math.max(0, g.echoBuffT - dt);
-
     G.FX.update(dt);
 
     /* 整屏版式（菜单/设置/玩法/图鉴/结算）与「首次遭遇」弹窗里不跑战斗逻辑。
@@ -528,7 +439,7 @@
       while (g.spawnIdx < ev.length && ev[g.spawnIdx].time <= g.waveTime) {
         if (g.enemies.length < 72) {
           var e = ev[g.spawnIdx];
-          g.enemies.push(G.Enemies.create(e.type, e.hpMul, CFG.SPAWN_COLS[e.spawn], g.waveData.rewardMul));
+          g.enemies.push(G.Enemies.create(e.type, e.hpMul, CFG.SPAWN_COLS[e.spawn], g.waveData.rewardMul, g.waveData.mut));
           /* 首次遭遇的记号在这里落 —— 必须在刷怪处而不是 Enemies.create 里：
            * 回声倒带会用 create 重建敌人，写在 create 里会把「已经见过的怪」
            * 又当成新的，倒一次带回溯一次弹窗。 */
@@ -545,15 +456,6 @@
 
     // 敌人远离后清理已死亡引用
     if (g.sel && g.towers.indexOf(g.sel) < 0) g.sel = null;
-
-    // 回声快照
-    g.snapT -= dt;
-    if (g.snapT <= 0) {
-      g.snapT = CFG.ECHO.snapStep;
-      g.snaps.push(takeSnapshot());
-      var maxSnaps = Math.ceil(CFG.ECHO.window / CFG.ECHO.snapStep);
-      while (g.snaps.length > maxSnaps) g.snaps.shift();
-    }
 
     if (g.state === 'wave' && g.waveData) {
       if (g.spawnIdx >= g.waveData.events.length && g.enemies.length === 0) waveComplete();
@@ -582,13 +484,11 @@
     // 任意一次点击都视为用户手势，用来解锁浏览器音频
     if (G.Audio) G.Audio.unlock();
 
-    // 音效开关（任何界面都能点）
-    // 快捷音效开关：设置 / 玩法 / 图鉴 / 弹窗都不响应
-    // （那几页没画它，大字号下会与页面自己的按钮重叠；设置页里另有音效开关）
-    if (G.Audio && g.state !== 'set' && g.state !== 'help' &&
-      g.state !== 'codex' && g.state !== 'pop' && inRect(x, y, LAY.soundBtn)) {
-      var m = G.Audio.toggleMute();
-      G.Game.toast(m ? '音效已关闭' : '音效已开启');
+    // 游戏内快捷设置按钮（胶囊下方右侧空档）：任何战斗界面都能点开设置页
+    if (g.state !== 'set' && g.state !== 'help' &&
+      g.state !== 'codex' && g.state !== 'pop' && inRect(x, y, LAY.settingsBtn)) {
+      A('ui');
+      G.Game.openPage('set');
       return;
     }
 
@@ -600,7 +500,8 @@
         if (!inRect(x, y, subs[si].rect)) continue;
         A('ui');
         if (subs[si].key === 'help') G.Game.openPage('help');
-        else if (subs[si].key === 'codex') G.Game.openCodex();
+        else if (subs[si].key === 'codex') G.Game.openCodex(0);
+        else if (subs[si].key === 'profile') G.Game.openCodex(2);
         else if (subs[si].key === 'set') G.Game.openPage('set');
         return;
       }
@@ -633,7 +534,7 @@
       if (inRect(x, y, { x: p.x, y: p.y, w: p.w, h: p.h })) return;
     }
 
-    // 2) 底部卡片
+    // 2) 底部卡片（现在只有上场元素塔；脉冲 / 倒带已移除）
     var cards = LAY.cards;
     var nTower = CFG.TOWER_ORDER.length;
     for (var i = 0; i < cards.length; i++) {
@@ -641,17 +542,8 @@
       if (i < nTower) {
         var key = CFG.TOWER_ORDER[i];
         g.selCard = (g.selCard === key) ? null : key;
-        g.pulseMode = false;
         g.sel = null;
         A('ui');
-      } else if (i === nTower) {
-        g.pulseMode = !g.pulseMode;
-        g.selCard = null;
-        g.sel = null;
-        if (g.pulseMode) G.Game.toast('点击战场释放共振脉冲');
-        A('ui');
-      } else {
-        G.Game.castEcho();
       }
       return;
     }
@@ -665,11 +557,6 @@
       var col = Math.floor((x - LAY.boardX) / CELL);
       var row = Math.floor((y - LAY.boardY) / CELL);
 
-      if (g.pulseMode) {
-        G.Game.castPulse(CFG.BX + (col + 0.5) * CELL, LAY.boardY + (row + 0.5) * CELL);
-        g.pulseMode = false;
-        return;
-      }
       var hit = null;
       for (var j = 0; j < g.towers.length; j++) {
         var t = g.towers[j];
@@ -693,7 +580,6 @@
     game.state = name;
     game.sel = null;
     game.selCard = null;
-    game.pulseMode = false;
   };
 
   G.Game.closePage = function () {
@@ -764,13 +650,17 @@
   /* ------------------------------------------------------------------ */
   /*  图鉴：首页入口进来的整屏页                                          */
   /* ------------------------------------------------------------------ */
-  G.Game.openCodex = function () {
+  /** 打开图鉴页。tab: 0 = 怪物，1 = 炮台，2 = 回响档案（成长系统）。
+   *  菜单上的「回响」入口直接落到 tab 2 —— 把成长和资料合在一页，
+   *  复用整块版式与页头返回，不必为它单开一个整屏页
+   *  （新开页的高度会进 pageNeed，超过 HELP_H 就会连战斗版式一起缩）。 */
+  G.Game.openCodex = function (tab) {
     game.prevState = game.state;
     game.state = 'codex';
+    game.codexTab = Math.max(0, Math.min(2, tab || 0));
     game.codexSel = null;
     game.sel = null;
     game.selCard = null;
-    game.pulseMode = false;
     game.toastT = 0;
   };
 
@@ -802,6 +692,18 @@
     for (var i = 0; i < tabs.length; i++) {
       if (!inRect(x, y, tabs[i])) continue;
       if (g.codexTab !== i) { g.codexTab = i; g.codexSel = null; A('ui'); }
+      return;
+    }
+
+    /* —— 回响档案（tab 2）：整页只有一个可交互控件「深渊开关」——
+     * 三条解锁线本身是纯展示（累计门槛制，没有要买的东西），所以这里不处理格子。 */
+    if (g.codexTab === 2) {
+      if (!G.Profile || !G.Profile.has('deep')) return;
+      if (!inRect(x, y, G.UI.profileDeepBtn())) return;
+      var on = !G.Profile.deepOn();
+      G.Profile.setDeep(on);
+      G.Game.toast(on ? '深渊已开启 · 下一局生效' : '深渊已关闭');
+      A('ui');
       return;
     }
 
@@ -847,7 +749,6 @@
     game.popKey = key;
     game.sel = null;
     game.selCard = null;
-    game.pulseMode = false;
     game.toastT = 0;
     game.bannerT = 0;
     A('waveStart');       // 复用低频轰鸣：新东西来了，不新增音色（音频自检按音色数断言）

@@ -14,9 +14,15 @@
 
   var E = G.Enemies = {};
 
-  E.create = function (key, hpMul, spawnCol, rewardMul) {
+  E.create = function (key, hpMul, spawnCol, rewardMul, mut) {
     var d = CFG.ENEMIES[key];
     var LAY = G.LAY;
+    /* mut 来自本波的地脉突变（见 waves.js）：speed/armor/dmg/regen 在此套用，
+     * 而 hp 与 reward 的乘子已由 main 在调用前乘进 hpMul / rewardMul，这里不再乘。 */
+    var speedMul = (mut && mut.speedMul) || 1;
+    var armorAdd = (mut && mut.armorAdd) || 0;
+    var dmgMul = (mut && mut.dmgMul) || 1;
+    var regen = (mut && mut.regen) || 0;
     var e = {
       uid: uidSeq++,
       key: key,
@@ -27,11 +33,12 @@
       row: -1,
       x: Grid.cellCX(spawnCol),
       y: LAY.boardY - CFG.CELL * 0.5,
-      speed: d.speed,
+      speed: d.speed * speedMul,
       maxHp: d.hp * hpMul,
       hp: d.hp * hpMul,
-      armor: d.armor,
-      dmg: d.dmg,
+      armor: d.armor + armorAdd,
+      dmg: d.dmg * dmgMul,
+      regen: regen,
       reward: Math.round(d.reward * (rewardMul || 1)),
       alive: true,
       mode: 'path',
@@ -124,6 +131,12 @@ E.push = function (e, dirX, dirY, dist) {
    * 两者正好抵消，怪就钉在原地来回（用户反馈的「卡住不前进」）。
    * 缩水后「慢 + 退」组合仍是净前进，而单独挨击退（没被减速）完全不受影响。 */
   if (e.slowAmt > 0) dist *= (1 - 0.55 * e.slowAmt);
+  /* 质量衰减：体积 / 护甲越大的敌人越难被推 —— 修复「风系一吹全退」超模。
+   * 脆皮小怪（群涌 / 疾行）几乎不受影响，照常被风塔成片推开（割草爽点保留）；
+   * 重甲 / 巨体（装甲体 / 巨岩 / Boss）击退距离被砍到约 1/3，风塔不再能
+   * 把它们一路推回出生线，逼你用元素反应和重击塔去磨肉。 */
+  var mass = 1 + (e.def.r - 10) * 0.09 + (e.def.armor || 0) * 0.18;
+  if (mass > 1.0001) dist = dist / mass;
   var d = Math.sqrt(dirX * dirX + dirY * dirY);
   if (d < 0.0001) return false;
   var v0 = dist / KB_TAU;
@@ -198,7 +211,26 @@ E.push = function (e, dirX, dirY, dist) {
   E.update = function (game, dt) {
     var list = game.enemies;
     var flow = Grid.flow, phaseFlow = Grid.phaseFlow, towerFlow = Grid.towerFlow;
-    var buff = game.echoBuffT > 0 ? CFG.ECHO.buffSpeed : 0;
+    /* 这里原有一条「回声后遗症」敌人移速加成（buff）。回声倒带整条下线后
+     * game.echoBuffT 字段已被删除，那一行恒为 `undefined > 0 === false` ——
+     * 逻辑上恰好不出错（倒带没了，敌人本就不该有加速），但它会让 CFG.ECHO
+     * 的删除变成隐患，所以整条清掉。 */
+
+    /* 织愈体群体治疗：每个 mender 给半径内友军回血（不含自身）。
+     * 放在主循环之前单独成 pass，避免与「死亡 splice」纠缠。 */
+    for (var a = 0; a < list.length; a++) {
+      var src = list[a];
+      if (!src.alive || !src.def.healRange) continue;
+      var hr2 = src.def.healRange * src.def.healRange;
+      var healAmt = src.def.healPerSec * dt;
+      for (var b = 0; b < list.length; b++) {
+        var tgt = list[b];
+        if (tgt === src || !tgt.alive) continue;
+        if (U.dist2(src.x, src.y, tgt.x, tgt.y) <= hr2) {
+          if (tgt.hp < tgt.maxHp) tgt.hp = Math.min(tgt.maxHp, tgt.hp + healAmt);
+        }
+      }
+    }
 
     for (var i = list.length - 1; i >= 0; i--) {
       var e = list[i];
@@ -218,6 +250,11 @@ E.push = function (e, dirX, dirY, dist) {
         if (e.hp <= 0) G.Game.damageEnemy(e, 1, null);
       }
 
+      // 地脉突变回血：每秒回血（来自 regrowth 等突变），不超过上限
+      if (e.regen > 0 && e.hp < e.maxHp) {
+        e.hp = Math.min(e.maxHp, e.hp + e.regen * dt);
+      }
+
       var phasing = false;
       if (e.def.phaseCycle) {
         e.phaseCd -= dt;
@@ -225,7 +262,7 @@ E.push = function (e, dirX, dirY, dist) {
         if (e.phaseT > 0) { e.phaseT -= dt; phasing = true; }
       }
 
-      var speed = e.speed * (1 - e.slowAmt) * (1 + buff);
+      var speed = e.speed * (1 - e.slowAmt);
       var frozen = e.stunT > 0;
 
       // 出生保护：先往下走进棋盘

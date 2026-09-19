@@ -658,20 +658,171 @@
     ctx.restore();
   }
 
+  /* 群涌体 —— 迷你果冻团：极简、快速脉动，成群时才有压迫感 */
+  function drawSwarmling(ctx, P, t, sd, sc) {
+    var ph = t * 3.4 + sd;
+    var bob = Math.sin(ph) * 1.2;
+    var br = Math.sin(ph) * 0.10;
+    ground(ctx, 9.6, 7, 2.2, sc);
+    ctx.save();
+    ctx.translate(0, bob);
+    ctx.strokeStyle = P.d;
+    ctx.lineWidth = 1.8; ctx.lineCap = 'round';
+    for (var i = 0; i < 2; i++) {
+      var x0 = -3 + i * 6;
+      var sw = Math.sin(t * 4 + i * 2 + sd) * 2.2;
+      ctx.beginPath();
+      ctx.moveTo(x0, 0.5);
+      ctx.quadraticCurveTo(x0 + sw, 5, x0 + sw * 1.6, 8.5);
+      ctx.stroke();
+    }
+    ctx.save();
+    ctx.scale(1 - br, 1 + br);
+    oval(ctx, 0, 0, 8, 7.4);
+    ink(ctx, P.c, 1.8);
+    oval(ctx, -2.6, -2.6, 2.2, 1.5);
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.fill();
+    ctx.restore();
+    eye(ctx, 0, -1.2, 3, P.lx, P.ly, P.blink);
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(0, 3.2, 1.3, Math.PI * 0.18, Math.PI * 0.82); ctx.stroke();
+    ctx.restore();
+  }
+
+  /* 虚影体 —— 飘动小幽灵：一直半透明，相位时更虚，带尖耳区分相位体 */
+  function drawWraith(ctx, P, t, sd, sc) {
+    var wav = Math.sin(t * 2.6 + sd) * 1.8;
+    var bob = Math.sin(t * 2.2 + sd) * 1.4;
+    ground(ctx, 12, 8, 2.6, sc);
+    ctx.save();
+    ctx.globalAlpha = P.phasing ? 0.5 : 0.82;
+    ctx.translate(0, bob);
+    ghostBody(ctx, wav);
+    ink(ctx, P.c, 2);
+    oval(ctx, -3, -4, 2.4, 4);
+    ctx.fillStyle = 'rgba(255,255,255,0.25)'; ctx.fill();
+    tri(ctx, -9, -6, -11, -15, -6, -8, P.c, 1.5);
+    tri(ctx, 9, -6, 11, -15, 6, -8, P.c, 1.5);
+    eye(ctx, 0, -1, 2.8, P.lx, P.ly, P.blink);
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(0, 3, 1.2, Math.PI * 0.2, Math.PI * 0.8); ctx.stroke();
+    ctx.restore();
+  }
+
+  /* 巨岩体 —— 石头巨人：厚重方身、头顶岩刺、缓慢摇摆、小凶眼 */
+  function drawTitan(ctx, P, t, sd, sc) {
+    var sway = Math.sin(t * 1.3 + sd) * 1.4;
+    ground(ctx, 14.6, 12, 3.6, sc);
+    ctx.save();
+    ctx.translate(sway, 0);
+    foot(ctx, -6, 13.4, 3.4, 2.4, P.d);
+    foot(ctx, 6, 13.4, 3.4, 2.4, P.d);
+    ctx.beginPath();
+    var x = -11, y = -6, w = 22, h = 18, r = 5;
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+    ink(ctx, P.c, 2.4);
+    ctx.strokeStyle = P.d; ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(-4, -2); ctx.lineTo(3, 4); ctx.stroke();
+    tri(ctx, -6, -6, -3, -15, 0, -6, P.c, 1.8);
+    tri(ctx, 2, -6, 5, -13, 8, -6, P.c, 1.8);
+    eye(ctx, -4, 2, 2.4, P.lx, P.ly, P.blink);
+    eye(ctx, 4, 2, 2.4, P.lx, P.ly, P.blink);
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(-4, 7); ctx.lineTo(4, 7); ctx.stroke();
+    ctx.restore();
+  }
+
+  /* 机巧体 —— 工程师：圆身、头顶旋转齿轮、单机械眼、小扳手臂 */
+  function drawTinker(ctx, P, t, sd, sc) {
+    var rot = t * 2.2 + sd;
+    var bob = Math.sin(t * 2.4 + sd) * 1.0;
+    ground(ctx, 12.4, 9, 2.8, sc);
+    ctx.save();
+    ctx.translate(0, bob);
+    foot(ctx, -4, 11.6, 2.6, 2, P.d);
+    foot(ctx, 4, 11.6, 2.6, 2, P.d);
+    oval(ctx, 0, 1, 9, 8.4);
+    ink(ctx, P.c, 2.1);
+    oval(ctx, 0, 2.5, 5, 2.6);
+    ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fill();
+    ctx.save();
+    ctx.translate(0, -7.5);
+    ctx.rotate(rot);
+    ctx.fillStyle = P.d;
+    for (var g = 0; g < 6; g++) {
+      var a = g * (Math.PI * 2 / 6);
+      ctx.save(); ctx.rotate(a);
+      ctx.beginPath(); ctx.moveTo(-1.4, -3.4); ctx.lineTo(1.4, -3.4); ctx.lineTo(0, -5); ctx.closePath();
+      ctx.fill(); ctx.restore();
+    }
+    ctx.beginPath(); ctx.arc(0, 0, 3.4, 0, Math.PI * 2);
+    ctx.fillStyle = P.l; ctx.fill();
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.4; ctx.stroke();
+    ctx.restore();
+    eye(ctx, 0, -1, 3.2, P.lx, P.ly, P.blink);
+    var arm = Math.sin(t * 3 + sd) * 0.4;
+    limb(ctx, 8, 2, 12, 5 + arm * 2, 2.4, P.d);
+    ctx.restore();
+  }
+
+  /* 织愈体 —— 奶妈：柔和圆身、胸前十字、头顶光环、环绕治疗光点、漂浮 */
+  function drawMender(ctx, P, t, sd, sc) {
+    var bob = Math.sin(t * 2.0 + sd) * 1.5;
+    var aura = t * 1.8 + sd;
+    ground(ctx, 12, 9, 2.8, sc);
+    ctx.save();
+    ctx.translate(0, bob);
+    for (var i = 0; i < 3; i++) {
+      var aa = aura + i * (Math.PI * 2 / 3);
+      var px = Math.cos(aa) * 7.5, py = -9 + Math.sin(aa) * 2.5;
+      ctx.globalAlpha = 0.7;
+      oval(ctx, px, py, 1.6, 1.6);
+      ctx.fillStyle = P.l; ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    oval(ctx, 0, 0.5, 9.5, 8.8);
+    ink(ctx, P.c, 2.1);
+    ctx.fillStyle = '#fff6ec';
+    ctx.fillRect(-1.6, -3, 3.2, 8);
+    ctx.fillRect(-4, -0.5, 8, 3.2);
+    ctx.strokeStyle = P.l; ctx.lineWidth = 1.8; ctx.globalAlpha = 0.85;
+    ctx.beginPath(); ctx.arc(0, -9.5, 4.4, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke();
+    ctx.globalAlpha = 1;
+    eye(ctx, 0, 3.5, 2.6, P.lx, P.ly, P.blink);
+    ctx.strokeStyle = INK; ctx.lineWidth = 1.3; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.arc(0, 7, 1.3, Math.PI * 0.15, Math.PI * 0.85); ctx.stroke();
+    ctx.restore();
+  }
+
   var ART = {
     drifter: drawDrifter,
     sprinter: drawSprinter,
     bulwark: drawBulwark,
     sunder: drawSunder,
     phaser: drawPhaser,
-    boss: drawBoss
+    boss: drawBoss,
+    swarmling: drawSwarmling,
+    wraith: drawWraith,
+    titan: drawTitan,
+    tinker: drawTinker,
+    mender: drawMender
   };
   M.ART = ART;
 
   /* 地面投影高度：每只怪脚底不一样，投影贴错位置会像「悬空」或「陷进去」 */
   var SHADOW_Y = {
     drifter: 13.6, sprinter: 11.6, bulwark: 15,
-    sunder: 12.4, phaser: 12.6, boss: 13.6
+    sunder: 12.4, phaser: 12.6, boss: 13.6,
+    swarmling: 9.6, wraith: 12, titan: 14.6, tinker: 12.4, mender: 12
   };
   M.SHADOW_Y = SHADOW_Y;
 

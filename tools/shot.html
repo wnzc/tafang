@@ -24,6 +24,7 @@
 <script src="../js/config.js"></script>
 <script src="../js/settings.js"></script>
 <script src="../js/codex.js"></script>
+<script src="../js/profile.js"></script>
 <script src="../js/grid.js"></script>
 <script src="../js/fx.js"></script>
 <script src="../js/enemies.js"></script>
@@ -72,7 +73,22 @@
     G.Game.selCard = null;
   }
 
-  if (scene === 'game') {
+  if (scene === 'menu') {
+    /* 菜单页：&pts=（可选）塞满解锁档案，验收「回响」入口在已解锁档案下的样子。 */
+    G.Game.reset();
+    G.Game.state = 'menu';
+    var mPts = parseInt(q.get('pts'), 10);
+    if (mPts > 0 && G.Profile) {
+      try {
+        localStorage.setItem('echo_profile', JSON.stringify({
+          pts: mPts, runs: 12, kills: 9000, wins: 6, best: 20, deepBest: 14, deep: 1
+        }));
+      } catch (e) { /* ignore */ }
+      G.Profile.load();
+      G.Profile.refresh();
+      if (G.Runtime && G.Runtime.fit) G.Runtime.fit();
+    }
+  } else if (scene === 'game') {
     G.Game.startRun();
     /* 战斗展示图不需要被「首次遭遇」弹窗打断（本机存过 echo_seen 时它才会弹，
      * 弹不弹取决于上一次截图写下的记录 —— 那种「有时弹有时不弹」最坑）。
@@ -179,6 +195,20 @@
     G.Game.openCodex();
     var codexTab = parseInt(q.get('tab'), 10) || 0;
     G.Game.codexTab = codexTab;
+    /* &pts=4200 → 先塞一份「满解锁」档案再进页面，用来截「已解锁」那一态
+     * （三条线全绿 + 深渊开关亮起）；不给就是新玩家视角。
+     * 注意：这会重写本机 localStorage 的 echo_profile，仅用于截图。 */
+    var ptsArg = parseInt(q.get('pts'), 10);
+    if (ptsArg > 0 && G.Profile) {
+      try {
+        localStorage.setItem('echo_profile', JSON.stringify({
+          pts: ptsArg, runs: 12, kills: 9000, wins: 6, best: 20, deepBest: 14, deep: 1
+        }));
+      } catch (e) { /* 隐私模式下写不进去就算了，画出来还是未解锁态 */ }
+      G.Profile.load();
+      G.Profile.refresh();          // 会改写上架塔表（解锁凝霜 → 7 座）
+      if (G.Runtime && G.Runtime.fit) G.Runtime.fit();
+    }
     var codexSelKey = q.get('sel');
     if (codexSelKey) {
       var okSel = codexTab === 1 ? !!G.CFG.TOWERS[codexSelKey]
@@ -222,6 +252,19 @@
     G.Game.state = scene;
     G.Game.score = 18420; G.Game.kills = 476; G.Game.leaked = 3;
     G.Game.wave = scene === 'win' ? 20 : 14; G.Game.best = 21300;
+    /* &gain=644 造一份本局结算（含 &unlock=muts 时再挂一条「新解锁」提示）。
+     * 不造的话 lastGain 为 null，画面会画成「+0」——那测不出这一行到底长什么样。 */
+    var gainArg = parseInt(q.get('gain'), 10);
+    if (gainArg > 0 && G.Profile) {
+      var unl = [];
+      var uKey = q.get('unlock');
+      if (uKey) {
+        for (var ui = 0; ui < G.CFG.UNLOCKS.length; ui++) {
+          if (G.CFG.UNLOCKS[ui].key === uKey) unl.push(G.CFG.UNLOCKS[ui]);
+        }
+      }
+      G.Game.lastGain = { gain: gainArg, unlocked: unl, changed: false };
+    }
   }
 
   G.Render.draw(G.Game);

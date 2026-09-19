@@ -23,9 +23,9 @@
   CFG.SPAWN_COLS = [0, 9];
 
   /* ---------------- 基础数值 ---------------- */
-  CFG.START_ENERGY = 250;            // 起手能量（够 4 座低价塔，前期不至于只能干看）
+  CFG.START_ENERGY = 320;            // 起手能量（爽游：开局多铺一座 AOE 塔，割草更顺）
   CFG.CORE_HP = 100;
-  CFG.PREP_TIME = 12;                // 备战倒计时
+  CFG.PREP_TIME = 9;                 // 备战倒计时（爽游档收紧，连着打节奏更顺）
   CFG.PREP_BONUS = 3;                // 提前开波，每秒奖励能量
   CFG.TOTAL_WAVES = 20;
   CFG.SELL_RATIO = 0.7;
@@ -74,17 +74,18 @@
       dmg: 7, range: 138, rate: 0.80,
       kind: 'gust', aoe: 96, push: 18
     },
-    /* ——— 凝霜（冰）暂时下线：整块留档，恢复 = 解开本段与 TOWER_ORDER 的注释 ———
-     * 下线原因：和水塔同为 kind:'wave'（范围减速波），定位重叠最高；
-     * 卡片从 9 张收到 8 张后正好两行 4+4，卡宽 129 → 164，元素图标看得清。
-     * 留档的东西：CFG.ELEM.cryo、RES.reactions 里的 5 条 cryo 反应、icons.js 的冰图标、
-     * towers.js 的冻结概率分支、audio.js 的 shootFrost 派发 —— 解注即全部生效。
+    /* ——— 凝霜（冰）：成长系统「回响档案」解锁后重新上架 ———
+     * 曾因与水塔同为 kind:'wave'（范围减速波）、定位重叠而下线留档；
+     * 现在做成 1300 回响点的解锁奖励回归 —— 它是三条解锁线里唯一
+     * 「解锁后多加一座塔」的，也是最省的一条：元素配色、5 条 cryo 反应、
+     * 图标、音效（shootFrost）、冻结概率分支全部留档至今，解注即生效。
+     * 上架与否不在这里管 —— CFG.TOWER_ORDER 才是「当前上架表」，
+     * 由 js/profile.js 按存档改写（见下方 TOWER_ORDER_ALL）。 */
     cryo: {
       key: 'cryo', name: '凝霜', elem: 'cryo', cost: 85, hp: 260,
       dmg: 10, range: 164, rate: 0.85,
       kind: 'wave', aoe: 58, slow: 0.50, slowT: 2.0, freezeChance: 0.22, freezeT: 1.1
     },
-    —————————————————————————————————————————————————————————————— */
     electro: {
       key: 'electro', name: '掣雷', elem: 'electro', cost: 90, hp: 240,
       dmg: 24, range: 192, rate: 0.70,
@@ -96,10 +97,15 @@
       kind: 'spike', stun: 0.45
     }
   };
-  /* 上场塔的元素顺序（卡片按这个顺序铺两行）。
-   * 凝霜（冰）已下线：把 'cryo' 解注回 anemo 与 electro 之间，同时解开上面 CFG.TOWERS
-   * 里的 cryo 定义块，两处一起解即完全恢复（元素、反应表、图标、音效都还在）。 */
-  CFG.TOWER_ORDER = ['pyro', 'hydro', 'dendro', 'anemo', /* 'cryo', */ 'electro', 'geo'];
+  /* —— 塔的两层表：完整表 / 当前上架表 ——
+   * TOWER_ORDER_ALL 是全部 7 座（含凝霜）的固定顺序，只当「可选集合」用。
+   * TOWER_ORDER 是**当前上架**的那份：卡片、建造、图鉴、版式计算全部读它；
+   * 默认 6 座（凝霜未解锁），js/profile.js 载入时按 echo_profile 改写。
+   * 这样「凝霜要不要出现在建造栏」不必在渲染 / 输入 / 布局三处各判一次 ——
+   * 所有代码照旧读 CFG.TOWER_ORDER，增删只有 profile 一处负责。
+   * 解锁后要触发一次 runtime 重排（卡片数变了，建造栏高度/卡宽都得重算）。 */
+  CFG.TOWER_ORDER_ALL = ['pyro', 'hydro', 'dendro', 'anemo', 'cryo', 'electro', 'geo'];
+  CFG.TOWER_ORDER = ['pyro', 'hydro', 'dendro', 'anemo', 'electro', 'geo'];
 
   /** 等级成长 */
   CFG.LV = {
@@ -184,20 +190,71 @@
     }
   };
 
-  /* ---------------- 回声倒带 ---------------- */
-  CFG.ECHO = {
-    max: 100,
-    perKill: 3,
-    perWave: 22,
-    window: 4.0,      // 回退秒数
-    snapStep: 0.15,   // 快照间隔
-    buffSpeed: 0.18,  // 回退后敌人适应加速
-    buffTime: 5.0
+  /* ---------------- 成长系统：回响档案（局外） ----------------
+   * 设计原则一句话：**只解锁内容，不买数值。**
+   *
+   * 为什么不给永久数值加成 —— 本作的难度是「阈值型」的，不是渐变的：
+   * 血量成长曲线的斜率从 0.245 抬到 0.26，理想 AI 就会从「通关剩 11 血」
+   * 直接变成「第 20 波核心归零」。也就是说任何超过约 3% 的永久输出提升
+   * 都会把 20 波曲线打塌 —— 「永久 +10% 塔伤」这种常见做法在这里等于删掉难度。
+   * 所以回响点只换「新东西」：突变池扩容 / 凝霜回归 / 深渊档。
+   * （这也是 roguelike 与永久成长的经典解法：解锁广度，不买深度。）
+   *
+   * 结算公式（每局结束，**失败也给点** —— roguelike 最劝退的就是「打不过＝一无所获」）：
+   *   回响点 = 波次 × 12 + ⌊击杀 ÷ 8⌋ − 漏怪 × 15 + (通关 ? 200 : 0)
+   *   通关满 20 波约 665 点，打到第 10 波崩掉约 135 点。
+   *
+   * 门槛是**累计制**，不是消费制：点数只累计、到达门槛自动解锁，玩家不需要
+   * 决定「花在哪」—— 省掉一整个商店 UI，也没有点错浪费的懊恼。
+   * 三条线的门槛合计约 6~8 局全解锁，数值待真实手感校准。
+   * 存档键 echo_profile，读写见 js/profile.js。 */
+  CFG.ECHO_POINT = {
+    perWave: 12,
+    perKillDiv: 8,
+    leakPenalty: 15,
+    winBonus: 200
   };
 
-  /* ---------------- 主动技能：共振脉冲 ---------------- */
-  CFG.PULSE = {
-    cost: 40, radius: 122, dmg: 48, stun: 1.3
+  /** 解锁线。每条 { key, name, desc, color, tiers:[{at,label}] }，
+   *  at 是累计回响点门槛（0 = 起始就有）、label 是展示文案。
+   *  顺序即展示顺序，渲染与自检都遍历这一张表。 */
+  CFG.UNLOCKS = [
+    {
+      key: 'muts', name: '地脉谱系', color: '#a77ffa',
+      desc: '每波随机的地脉突变池扩容',
+      /* counts 与 tiers 一一对应：第 i 档达成时突变池放几条。
+       * 用显式映射而不是「基础 + 档位 × 2」那种公式 —— 以后想改成
+       * 4 / 6 / 7 条这种不对称的节奏，只改这一行；标签也各写各的。 */
+      counts: [4, 6, 8],
+      tiers: [
+        { at: 0, label: '4 条' },
+        { at: 1000, label: '6 条' },
+        { at: 3000, label: '8 条' }
+      ]
+    },
+    {
+      key: 'cryo', name: '凝霜回归', color: '#7ad3e6',
+      desc: '冰塔「凝霜」重新上架建造栏',
+      tiers: [{ at: 1300, label: '上架' }]
+    },
+    {
+      key: 'deep', name: '深渊', color: '#ff4d6d',
+      desc: '敌人血量 ×1.35，独立最高分',
+      tiers: [{ at: 3800, label: '开启' }]
+    }
+  ];
+
+  /** 地脉突变的**起始**条数。CFG.MUTATIONS 共 8 条，其余靠「地脉谱系」逐档解锁，
+   *  开局只放前 4 条 —— 让前几局的随机性可控一点，解锁后再往「更混沌」放开。
+   *  注意这里只截前 N 条，不是随机选：保证起始池是固定的一组、可预期。 */
+  CFG.MUT_BASE = 4;
+
+  /** 深渊档：解锁后可在档案页开启。血量在常规波次血线之上再乘一层，
+   *  击杀收益略增作为补偿；最高分单独记在 echo_profile 的 deepBest 字段里，
+   *  不与常规榜（echo_best）混。 */
+  CFG.DEEP = {
+    hpMul: 1.35,
+    rewardMul: 1.15
   };
 
   /* ---------------- 表现层 ---------------- */
@@ -235,41 +292,108 @@
 
   CFG.ENEMIES = {
     drifter: {
-      key: 'drifter', name: '游荡体', hp: 62, speed: 58, r: 13,
+      key: 'drifter', name: '游荡体', hp: 48, speed: 58, r: 13,
       reward: 6, dmg: 1, armor: 0, color: '#6ee7ff'
     },
     sprinter: {
-      key: 'sprinter', name: '疾行体', hp: 40, speed: 120, r: 11,
+      key: 'sprinter', name: '疾行体', hp: 32, speed: 120, r: 11,
       reward: 7, dmg: 1, armor: 0, color: '#ffe066'
     },
     bulwark: {
-      key: 'bulwark', name: '装甲体', hp: 210, speed: 38, r: 17,
+      key: 'bulwark', name: '装甲体', hp: 150, speed: 38, r: 17,
       reward: 14, dmg: 3, armor: 4, color: '#9aa7c7'
     },
     sunder: {
-      key: 'sunder', name: '破墙者', hp: 100, speed: 56, r: 15,
+      key: 'sunder', name: '破墙者', hp: 78, speed: 56, r: 15,
       reward: 13, dmg: 2, armor: 1, color: '#ff8a4c',
       towerDps: 13, towerRange: 74
     },
     phaser: {
-      key: 'phaser', name: '相位体', hp: 105, speed: 70, r: 13,
+      key: 'phaser', name: '相位体', hp: 82, speed: 70, r: 13,
       reward: 14, dmg: 2, armor: 1, color: '#c08bff',
       phaseCycle: 6.0, phaseDur: 2.2
     },
     /* Boss。三件事必须一起看：
-     *   hp 750 —— 旧值 1600 配上当年的 hpMul，第 5 波那只是 4448 血；
+     *   hp 560 —— 旧值 1600 配当年 hpMul 时第 5 波那只高达 4448 血，
      *     当时玩家手上只有四五座一级塔、合计不到 60 点秒伤，要打七十多秒，
      *     而它走完全程只要 25 秒 —— 结论就是「打不动」，不是难。
+     *     roguelike 化整体降血后，这里从 750 再降到 560，但仍是全场的硬骨头。
      *   armor 4 —— 原来 10：火塔 17 伤害只剩 7，等于把一半的塔废掉。
      *     降到 4 之后平砍有输出，但仍然只有重击塔划算。
      *   suppress 140 —— 靠近时把半径内的塔踢出共振网络（连带关掉它的反应）。
      *     这条是「别把塔紧贴它的路摆」的原因，也是它的血量能降这么多的前提。 */
     boss: {
-      key: 'boss', name: '共鸣吞噬者', hp: 750, speed: 34, r: 27,
+      key: 'boss', name: '共鸣吞噬者', hp: 560, speed: 34, r: 27,
       reward: 150, dmg: 26, armor: 4, color: '#ff4d6d',
       boss: true, suppress: 140
+    },
+
+    /* —— 以下 5 只是 roguelike 化后新增的敌种，覆盖「群 / 相 / 肉 / 拆 / 奶」五种职责 ——
+     * 加怪要动三个文件：数值在这里（CFG.ENEMIES）+ 矢量形象在 js/monsters.js（按 key 对应）
+     * + 图鉴文案在 js/codex.js（ENEMY 表）。漏掉第三处图鉴会留空，layout-check 会报。 */
+    swarmling: {                    // 群涌体：血量极低、体型最小，靠成群压过来
+      key: 'swarmling', name: '群涌体', hp: 18, speed: 76, r: 8,
+      reward: 2, dmg: 1, armor: 0, color: '#7cffb0'
+    },
+    wraith: {                       // 虚影体：相位虚化、脆但快，擦边而过
+      key: 'wraith', name: '虚影体', hp: 50, speed: 104, r: 10,
+      reward: 8, dmg: 1, armor: 0, color: '#9be7ff',
+      phaseCycle: 4.0, phaseDur: 1.5
+    },
+    titan: {                        // 巨岩体：重甲肉盾，慢到能用反应磨
+      /* armor 6 → 4。原来给到全表最高（连 Boss 都只有 4）是想突出「肉盾」，
+       * 但那等于重演 Boss 当年用 armor 10 把「一半的塔废掉」的老错：塔伤一被
+       * 削 6 点，平砍就掉了三四成，玩家只剩元素反应一条路。降到 4 之后它的
+       * 身份仍然清楚 —— 血量第一（300）、速度最慢（26）、体积最大（r 22），
+       * 但不再单独把塔的平砍废掉。实测（simulate 固定种子）这一处就是
+       * 「第 19 波 138 只巨岩体一波打穿」的根因。 */
+      key: 'titan', name: '巨岩体', hp: 300, speed: 26, r: 22,
+      reward: 22, dmg: 6, armor: 4, color: '#c9b08a'
+    },
+    tinker: {                       // 机巧体：强化版拆迁，啃塔更狠
+      key: 'tinker', name: '机巧体', hp: 80, speed: 60, r: 13,
+      reward: 11, dmg: 2, armor: 1, color: '#ffc24c',
+      towerDps: 24, towerRange: 84
+    },
+    mender: {                       // 织愈体：周期性治疗半径内友军，奶妈
+      key: 'mender', name: '织愈体', hp: 90, speed: 48, r: 13,
+      reward: 12, dmg: 1, armor: 0, color: '#ff9ad2',
+      healRange: 104, healPerSec: 7
     }
   };
+
+  /* ---------------- 地脉突变（roguelike 层） ----------------
+   * 每局一个随机种子，每波从这张表里随机抽 1~2 条「地脉突变」套到该波敌人身上，
+   * 让同一只怪在不同局 / 不同波里表现不同 —— 这是「类似 roguelike」的核心。
+   * 每条突变是一组**乘子 / 加值**，字段可空（undefined）表示不影响该项：
+   *   speedMul  移速倍率（>1 更快）
+   *   armorAdd  护甲加值（叠加在 def.armor 上）
+   *   hpMul     血量倍率（与波次自身 hpMul 乘算）
+   *   dmgMul    漏怪伤害倍率（抵达核心的削减）
+   *   spawnMul  刷怪密度倍率（>1 更密，roguelike 的「涌动」）
+   *   regen     每秒回血（点/秒），给肉怪续命
+   *   rewardMul 击杀奖励倍率（<1 收益下降）
+   * 应用点在 js/waves.js（plan 选突变 + 合进 hpMul 与 spawn 密度）
+   * 与 js/enemies.js（create 套 speed / armor / dmg / regen）。字段含义见两处注释。 */
+  /* 地脉突变表。**数组顺序即解锁顺序** —— Profile.mutPool() 取的是前 N 条
+   * （N 由「地脉谱系」那条线的档位决定：4 → 6 → 8），所以排在前面的必须是
+   * 最温和的几条：新玩家起步只遇到它们，解锁后再把硬货放进来（增加变数
+   * 而不是单纯变难，这是 roguelike 的正统做法）。
+   * 早先按「数值类型」排，结果起始池里是疾风/铁甲/涌动/血怒 —— 四条里三条
+   * 硬加难度（涌动更是怪量 ×1.5），与「前几局可控」的意图正好相反，
+   * 实测还能让理想 AI 在第 19 波直接崩盘。现在按烈度重排：
+   *   起始池 = 疾风（只加速）/ 回响（回血）/ 蚀影（只减收益，不动难度）/ 狂乱（中等）
+   *   解锁池 = 铁甲（护甲 4）/ 血怒（血 + 攻）/ 涌动（怪量 1.5）/ 巨力（最厚最硬） */
+  CFG.MUTATIONS = [
+    { key: 'swift',    name: '疾风地脉', desc: '敌人移动加速', speedMul: 1.22 },
+    { key: 'regrowth', name: '回响地脉', desc: '敌人持续回血', regen: 8 },
+    { key: 'eclipse',  name: '蚀影地脉', desc: '击杀收益下降', rewardMul: 0.75 },
+    { key: 'frenzy',   name: '狂乱地脉', desc: '速度与冲击齐升', speedMul: 1.14, dmgMul: 1.25 },
+    { key: 'ironhide', name: '铁甲地脉', desc: '敌人护甲提升', armorAdd: 4, hpMul: 1.10 },
+    { key: 'bloodfury',name: '血怒地脉', desc: '敌血量与冲击俱增', hpMul: 1.22, dmgMul: 1.30 },
+    { key: 'swarm',    name: '涌动地脉', desc: '敌人成群涌来', spawnMul: 1.5 },
+    { key: 'titanfall',name: '巨力地脉', desc: '敌人更厚更硬', hpMul: 1.35, armorAdd: 2 }
+  ];
 
   /* ---------------- 配色 ----------------
    * 底色是**深海军蓝**，不是近黑。近黑（原来 #04060d）有三个问题：
@@ -385,68 +509,58 @@
 
     var top = insetTop;
 
-    /* 右对齐那一列（波次 / 最高分 / 能量）怎么摆：
-     *   方案 A（主流）：并排缩到胶囊左侧 —— 保住顶部这块宝贵的纵向空间
-     *   方案 B（胶囊太靠左 / 平板）：横向挤不下，整列下移到胶囊下方
-     * 门槛 450 是按当前字号的实测宽度定的：再窄，波次那行的左侧就会被
-     * 左边的大标题顶到，两列会叠字。
-     */
-    var hudRight = 566;
-    var rightColTop = top;
-    var mode = '-';
-    if (hasCap) {
-      var narrowed = Math.round(capL - 14);
-      if (narrowed >= 450) {
-        hudRight = Math.min(566, narrowed);        // 方案 A
-        mode = 'A';
-      } else {
-        hudRight = 566;                            // 方案 B
-        rightColTop = Math.max(top, capB + 10);
-        mode = 'B';
-      }
-    }
+    /* 微信下，战斗 HUD（左列 + 右列）+ 棋盘 + 建造栏这一整条链整体下移到
+     * 胶囊下方，把右上角胶囊那一行完整让给系统 UI。标题仍落在内容区左上角
+     * （胶囊下方左侧）。整屏版式（菜单 / 设置 / 玩法 / 图鉴）垂直居中即可，
+     * 不避让胶囊，故仍用 top（= insetTop）。 */
+    var gameTop = insetTop;
+    if (hasCap) gameTop = capB + S(8);   // 胶囊底 + 余量：HUD 顶边整体下移到胶囊下方
 
-    // 音效开关固定挂在胶囊正下方右侧，那是一整块没人用的空档
-    var soundY = hasCap ? capB + S(12) : top + S(18);
+    /* 右对齐那一列（波次 / 最高分 / 能量）整体顶格：
+     * 右沿 = 内容区右沿（720 - S(40)），不再为右上角的胶囊让位。
+     * 原先 HUD 与胶囊并排、右列被压到 566 并分 A/B 两套摆法（胶囊靠左时整列并排），
+     * 现在整条 HUD 链已经下移到胶囊下方，横向没有遮挡，右列直接顶到右边即可。 */
+    var hudRight = 720 - S(40);
+    var rightColTop = gameTop;
+    var mode = 'R';
 
     var hud = {
-      top: top,
+      top: gameTop,
       k: CFG.LAY_K,
       hasCapsule: hasCap,
       layout: mode,
       /* —— 左对齐一列：躲开状态栏即可 ——
        * 坐标按 FS 表换算后的「真实字高」排，行尾注释是中档下的上下沿。 */
-      title: top + S(36),          // 45px 标题：顶 13 → 底 58
-      sub: top + S(74),            // 21px：顶 64 → 底 85
-      hpLabel: top + S(106),       // 22px：顶 95 → 底 117
-      ecLabel: top + S(164),       // 22px：顶 153 → 底 175
-      hpBar: { x: 40, y: top + S(122), w: 388, h: S(22) },
-      ecBar: { x: 40, y: top + S(180), w: 388, h: S(22) },
-      waveBtn: { x: 40, y: top + S(218), w: 640, h: S(64) },   // 底 top+282
-      // —— 右对齐一列 ——
+      title: gameTop + S(36),          // 45px 标题：顶 13 → 底 58
+      sub: gameTop + S(74),            // 21px：顶 64 → 底 85
+      hpLabel: gameTop + S(106),       // 22px：顶 95 → 底 117
+      hpBar: { x: 40, y: gameTop + S(122), w: 388, h: S(22) },
+      /* 回声条随「回声倒带」一起下线（现行玩法只剩炮台），开波按钮直接顶上来
+       * 占住这一行：左列少一行 S(58)，棋盘就多让出一截纵向空间。 */
+      waveBtn: { x: 40, y: gameTop + S(172), w: 500, h: S(64) },   // 底 gameTop+236
+      // —— 右对齐一列：右沿 = hudRight（顶格）——
       waveTxt: rightColTop + S(36),
       bestTxt: rightColTop + S(74),
       energyLabel: rightColTop + S(106),
-      energyVal: rightColTop + S(152),  // 47px：顶 129 → 底 176
+      energyVal: rightColTop + S(152),  // 字号降到 20px（表内值）后约顶 144 → 底 166
       hudRight: hudRight,
-      /* 音效开关左上角 x 必须 ≥ hudRight：右列文字右对齐到 hudRight，
-         两者靠“横向分离”共存（开关挂在胶囊下方，y 上躲不开右列）。
-         宽恒为 100：里面只有一个图标 + 一个汉字，横向不必跟字号走。 */
-      soundBtn: { x: 580, y: soundY, w: 100, h: S(54) }
+      /* 设置键：从右上角「关闭声音」原位挪下来，挂在开波按钮右侧那格空档 ——
+       * 横向与开波按钮分离（540 ← 40 间隙 → 580），纵向与它基本齐平。
+       * 宽恒 100（里面只有一个图标 + 两个汉字，横向不必跟字号走），
+       * 左沿 580 + 宽 100 = 680 = 内容区右沿，正好顶格。 */
+      settingsBtn: { x: 580, y: gameTop + S(176), w: 100, h: S(54) }
     };
 
-    // 方案 B 下右列被推到胶囊下面了，开波按钮必须再往下让
-    if (hasCap && rightColTop > top) {
-      hud.waveBtn.y = Math.max(hud.waveBtn.y, rightColTop + S(186));
-    }
-
     /* 建造栏高度不再是常数：它由「卡片几行 × 多高」决定（见下面的卡片段）。
-     * 两行之后栏高 236，比原来的一行 164 高 72 —— 但卡宽从 72 翻到 129、
-     * 图标从 12 涨到 15，卡片里的元素图标才第一次看得清。
+     * 脉冲 / 倒带下线后只剩 6 座炮台：两行 3 + 3，栏高仍是 236，
+     * 但卡宽从 164 涨到 221，元素图标与卡内文字都更宽松。
      * 卡高 104 是量出来的：图标 S(26)±S(15) → 卡名 S(58) → 副标题 S(84)，
      * 三行字在三档字号下都不相压（S 与 F 两条曲线不同源，不能靠眼估）。 */
     var gap = S(8), rowGap = S(8), cardPadTop = S(10), cardH = S(104);
-    var barH = cardPadTop * 2 + cardH * 2 + rowGap;
+    var nCard = CFG.TOWER_ORDER.length;
+    var perRow = Math.ceil(nCard / 2);
+    var nRow = Math.ceil(nCard / perRow);
+    var barH = cardPadTop * 2 + cardH * nRow + rowGap * (nRow - 1);
     var barY = designH - insetBottom - barH;
 
     // 棋盘起始 y：HUD 最后一行（开波按钮）下沿 + 呼吸位
@@ -461,12 +575,10 @@
     var boardY = contentTop +
       Math.max(0, (barY - contentTop - CFG.BOARD_H - RESERVE_BELOW) / 2);
 
-    /* 卡片：两行铺开（6 塔 + 脉冲 + 倒带 = 8 张）。
-     * 冰塔下线后正好 4 + 4 两行，卡宽从 129 涨到 164（一行挤 9 张时只有 72，图标糊成点）。
-     * 顺序照旧按 TOWER_ORDER 排，所以「塔在上、技能在下」是稳定的，
-     * 不会因为以后加塔把脉冲/倒带挤到第二行以外。 */
-    var n = CFG.TOWER_ORDER.length + 2;
-    var perRow = Math.ceil(n / 2);
+    /* 卡片：只剩炮台（6 张），两行 3 + 3 铺开。
+     * 卡宽从 164 涨到 221（一行硬挤 6 张时只有 102，图标糊成点）。
+     * 顺序照 TOWER_ORDER 排，以后加塔按 ceil(n/2) 自动多行、栏高跟着长大。 */
+    var n = nCard;
     var cw = Math.floor((696 - S(8) * 2 - (perRow - 1) * gap) / perRow);
     var cards = [];
     for (var i = 0; i < n; i++) {
@@ -493,7 +605,7 @@
      * 纵向预算（定位行 → 一句话概括）只够 r≈42，撑不起形象；
      * 加高 60 全给形象，实测能到 r=56（小体型的怪接近 5 倍放大），
      * 760 仍远小于 1150，所以整体缩放和战斗版式一个像素都没动。 */
-    var CODEX_H = S(1000), POP_H = S(760);
+    var CODEX_H = S(1000), POP_H = S(800);
     var pagePad = top + S(10);
     var menuTop = Math.max(pagePad, Math.round((designH - MENU_H) / 2));
     var setTop = Math.max(pagePad, Math.round((designH - SET_H) / 2));
@@ -546,8 +658,7 @@
       /* 兼容旧字段名：渲染层与命中区都直接引用这几个对象 */
       waveBtn: hud.waveBtn,
       hpBar: hud.hpBar,
-      ecBar: hud.ecBar,
-      soundBtn: hud.soundBtn,
+      settingsBtn: hud.settingsBtn,
       hudRight: hud.hudRight
     };
   };

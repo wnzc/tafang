@@ -22,16 +22,16 @@
   /** 居中横放一个宽 w 的块 */
   function mid(w) { return Math.round((720 - w) / 2); }
 
-  /** 音效开关（右上角，任何界面都能点：游戏中的快捷静音） */
-  UI.soundBtn = function () {
-    return G.LAY.soundBtn;
+  /** 设置键（战斗中挂在开波按钮右侧，点开「设置」页；音效开关在设置页里） */
+  UI.settingsBtn = function () {
+    return G.LAY.settingsBtn;
   };
 
-  /** 底部卡片：上场元素塔 + 脉冲 + 倒带（顺序跟 CFG.TOWER_ORDER 走，塔数变了这里不用改） */
+  /** 底部卡片：只剩上场元素塔（顺序跟 CFG.TOWER_ORDER 走，塔数变了这里不用改）。
+   *  主动技「共振脉冲」与「回声倒带」已下线，卡片不再有技能位。 */
   UI.cardKind = function (i) {
     if (i < CFG.TOWER_ORDER.length) return { type: 'tower', key: CFG.TOWER_ORDER[i] };
-    if (i === CFG.TOWER_ORDER.length) return { type: 'pulse' };
-    return { type: 'echo' };
+    return null;
   };
 
   UI.towerPanel = function (t) {
@@ -64,20 +64,27 @@
    * **这张表是唯一的一份**：渲染遍历它画、命中遍历它判，谁也不用自己记坐标。
    * 早先三处各写一遍（几何在 ui、绘制在 render、命中在 main），加「图鉴」时就漏了 render —— 
    * 按钮点得到却看不见，纯几何断言一条都查不出来。 */
-  var SUB_W = 196, SUB_GAP = 20;
+  /* 四个次级按钮并排：玩法 / 图鉴 / 回响 / 设置。
+   * 从三个（196 宽、总宽 628）改成四个（142 宽、总宽同样 628）：
+   * 左边的 46 起手与整体宽度都不变，只是每格窄一点 —— 标签统一成两个字，
+   * 142 里排得很宽松（大字号档下两个字也才 58，用不到一半）。
+   * 「玩法说明」因此简写成「玩法」：四个按钮字数一致，视觉才齐。 */
+  var SUB_W = 142, SUB_GAP = 20;
   function subBtn(i) {
     return { x: 46 + i * (SUB_W + SUB_GAP), y: G.LAY.menuTop + S(452), w: SUB_W, h: S(72) };
   }
   UI.menuSubBtns = function () {
     return [
-      { key: 'help', label: '玩法说明', color: '#5fc8ff', rect: subBtn(0) },
+      { key: 'help', label: '玩法', color: '#5fc8ff', rect: subBtn(0) },
       { key: 'codex', label: '图鉴', color: '#ffd27a', rect: subBtn(1) },
-      { key: 'set', label: '设置', color: '#b06bff', rect: subBtn(2) }
+      { key: 'profile', label: '回响', color: '#7ef2c0', rect: subBtn(2) },
+      { key: 'set', label: '设置', color: '#b06bff', rect: subBtn(3) }
     ];
   };
   UI.menuHelp = function () { return subBtn(0); };
   UI.menuCodex = function () { return subBtn(1); };
-  UI.menuSet = function () { return subBtn(2); };
+  UI.menuProfile = function () { return subBtn(2); };
+  UI.menuSet = function () { return subBtn(3); };
   UI.againBtn = function () {
     return { x: mid(256), y: G.LAY.overTop + S(424), w: 256, h: S(88) };
   };
@@ -199,12 +206,12 @@
       '击杀与清波获得能量，用来建塔和升级',
       '每级 +32% 伤害；回收塔返还 70% 造价'
     ] },
-    { t: '主动技与倒带', lines: [
-      '脉冲：40 能量，范围伤害 + 定身 1.3 秒',
-      '倒带：战场回退 4 秒，敌人提速 18%'
+    { t: '地脉突变 · 回响档案', lines: [
+      '每波开打随机抽 1~2 条突变，敌群随之一变',
+      '局外攒回响点：扩突变池 / 解锁凝霜 / 深渊'
     ] },
     { t: '提前开波 · 起步 +25', lines: [
-      '备战 12 秒，提前开波每秒 +3 能量'
+      '备战 9 秒，提前开波每秒 +3 能量'
     ] }
   ];
 
@@ -232,20 +239,27 @@
   /*  几何全部在这里算，渲染与输入共用 —— 格子与它内部的字号是两套曲线    */
   /*  （S 与 F），分开算迟早会错位。                                       */
   /* ------------------------------------------------------------------ */
-  UI.CODEX_TABS = ['怪物', '炮台'];
+  UI.CODEX_TABS = ['怪物', '炮台', '回响'];
   /** 内容区顶边（相对 codexTop）：页头 + 分隔线 + Tab 条之下 */
   UI.CODEX_BODY_Y = 198;
-  /** 列表网格 3 列 × 2 行 */
+  /** 列表网格 3 列 × 4 行（roguelike 化后敌种增至 11，3×4=12 格够放；
+   *  4 行靠缩小格子高度到 184 容纳，渲染层对应偏移同步缩小）。 */
   UI.CODEX_COLS = 3;
-  UI.CODEX_ROWS = 2;
+  UI.CODEX_ROWS = 4;
 
   /** 回菜单（页头右上，与玩法页的返回药丸同款同位） */
   UI.codexBack = function () {
     return { x: 720 - 46 - 170, y: G.LAY.codexTop + S(24), w: 170, h: S(56) };
   };
 
+  /* Tab 条总宽固定 612（左右各留 54 居中），每个 tab 按数量分摊宽度：
+   * 2 个 → 300（与加「回响」之前逐像素一致），3 个 → 196。
+   * 写成「固定总宽 ÷ 数量」而不是写死单个多宽 —— 加 tab 时不用再算居中，
+   * 也不会像原来那样把 w 写死 300 而 3 个 tab 直接撑到 924 出框。 */
+  UI.CODEX_TABS_W = 612;
   UI.codexTabs = function () {
-    var w = 300, gap = S(12), n = UI.CODEX_TABS.length;
+    var gap = S(12), n = UI.CODEX_TABS.length;
+    var w = Math.floor((UI.CODEX_TABS_W - (n - 1) * gap) / n);
     var x0 = Math.round((720 - (n * w + (n - 1) * gap)) / 2);
     var y = G.LAY.codexTop + S(118);
     var out = [];
@@ -257,7 +271,7 @@
   UI.codexCell = function (i) {
     var n = UI.CODEX_COLS, gap = S(14), left = 40;
     var w = Math.floor((720 - left * 2 - (n - 1) * gap) / n);
-    var h = S(230);
+    var h = S(184);
     return {
       x: left + (i % n) * (w + gap),
       y: G.LAY.codexTop + S(UI.CODEX_BODY_Y) + Math.floor(i / n) * (h + gap),
@@ -269,9 +283,9 @@
     var c = UI.codexCell(UI.CODEX_COLS * UI.CODEX_ROWS - 1);
     return c.y + c.h;
   };
-  /** 列表下方的说明行 */
+  /** 列表下方的说明行（4 行网格之后） */
   UI.codexHint = function () {
-    return { y: G.LAY.codexTop + S(716) };
+    return { y: G.LAY.codexTop + S(992) };
   };
 
   /* —— 详情视图 —— */
@@ -290,14 +304,14 @@
   /** 文字块（怪物=要点，炮台=攻击方式） */
   UI.codexBlock = function () {
     var c = UI.codexStatCells();
-    return { x: 46, y: c[0].y + c[0].h + S(14), w: 628, h: S(96) };
+    return { x: 46, y: c[0].y + c[0].h + S(14), w: 628, h: S(114) };
   };
   /* 怪物详情多一块「打法」：怪物详情原本在要点块之下就没人用了
    * （炮台详情那里是反应块），空着近 300 像素。
    * 块里放标题 + 一行右对齐的数值标注 + 两行打法。 */
   UI.codexHowtoBlock = function () {
     var b = UI.codexBlock();
-    return { x: 46, y: b.y + b.h + S(14), w: 628, h: S(116) };
+    return { x: 46, y: b.y + b.h + S(14), w: 628, h: S(134) };
   };
   /** 炮台详情的元素反应块：标题 + 最多 6 行 */
   UI.CODEX_REACT_H = 272;
@@ -329,6 +343,35 @@
   };
 
   /* ------------------------------------------------------------------ */
+  /*  回响档案（图鉴第三页 · 成长系统）                                    */
+  /*  整页只有「深渊开关」一个可交互控件，其余三条解锁线是纯展示 ——         */
+  /*  门槛是累计制，没有要买的东西，所以不需要商店式的手感。                */
+  /*  纵向预算：内容顶 198 → 深渊键底 896，全部落在 CODEX_H(1000) 之内，    */
+  /*  所以这一页与另外两个 tab 共用一个块高，pageNeed 一个数都没动。        */
+  /* ------------------------------------------------------------------ */
+  /** 回响点总览卡（累计点数大数 + 一行说明） */
+  UI.profileCard = function () {
+    return { x: 46, y: G.LAY.codexTop + S(UI.CODEX_BODY_Y), w: 628, h: S(110) };
+  };
+  /** 第 i 条解锁线（顺序即 CFG.UNLOCKS 的顺序，渲染与自检都遍历这一张） */
+  UI.profileLine = function (i) {
+    return { x: 46, y: G.LAY.codexTop + S(320 + i * 108), w: 628, h: S(96), idx: i };
+  };
+  /** 解锁线行内的进度条：按「下一档门槛」算比例，满档则恒为 1 */
+  UI.profileBar = function (i) {
+    var r = UI.profileLine(i);
+    return { x: r.x + S(16), y: r.y + r.h - S(26), w: r.w - S(32), h: S(12) };
+  };
+  /** 战功录面板（累计统计，纯展示，不可点） */
+  UI.profileStats = function () {
+    return { x: 46, y: G.LAY.codexTop + S(650), w: 628, h: S(150) };
+  };
+  /** 深渊开关。未解锁时同样画出来（置灰 + 写明门槛），让玩家知道有这条线。 */
+  UI.profileDeepBtn = function () {
+    return { x: mid(300), y: G.LAY.codexTop + S(820), w: 300, h: S(76) };
+  };
+
+  /* ------------------------------------------------------------------ */
   /*  「首次遭遇」弹窗                                                    */
   /*  战斗中被新怪触发：半透明遮罩 + 面板，面板下的战场仍在（暂停但可见）， */
   /*  所以这里的每一块都要落在 popH 之内，别把按钮顶出屏幕。               */
@@ -340,7 +383,7 @@
    * 形象要躲开「定位」行、又不能压到「一句话概括」，两处都按这几个数算。
    * 「一句话概括」以下的三块（数值格 / 要点 / 按钮）在面板加高到 760 时
    * 一起下移了 60 —— 让出来的那段纵向空间全给形象。 */
-  UI.POP_LINES = { title: 52, name: 104, role: 142, tag: 356, statY: 380, blockY: 472, okY: 630 };
+  UI.POP_LINES = { title: 52, name: 104, role: 142, tag: 356, statY: 380, blockY: 472, okY: 670 };
   /** 弹窗里的怪物形象圆心与半径。
    *  形象不是一个圆：脑袋、耳朵、犄角会顶出身体半径，实测外扩上限见 CFG.MON_EXTENT
    *  （最高的游荡体到 1.44r）。所以圆心不能拍脑袋写 —— 这里按「上躲定位行、
@@ -362,11 +405,11 @@
     for (var i = 0; i < n; i++) out.push({ x: x0 + i * (w / n), y: y, w: w / n, h: S(76), idx: i });
     return out;
   };
-  /** 弹窗里的要点块。高 148 而不是 120：要点两行 + 打法一行。
-   *  加高后底边（472+148 = 620）仍低于「继续」按钮的顶边（630），
+  /** 弹窗里的要点块。高 170：要点两行 + 打法一行，末行基线之下留足呼吸位，
+   *  文字不许贴块底边。加高后底边（472+170 = 642）仍高于「继续」按钮的顶边（670），
    *  layout-check 的「按钮在要点块之下」就是卡这一条。 */
   UI.popBlock = function () {
-    return { x: 48 + S(30), y: G.LAY.popTop + S(UI.POP_LINES.blockY), w: 624 - S(60), h: S(148) };
+    return { x: 48 + S(30), y: G.LAY.popTop + S(UI.POP_LINES.blockY), w: 624 - S(60), h: S(170) };
   };
   /** 「继续」按钮：关掉弹窗、解除暂停 */
   UI.popOk = function () {

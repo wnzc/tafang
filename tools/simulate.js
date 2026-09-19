@@ -1,7 +1,7 @@
 /**
  * tools/simulate.js —— 无头逻辑自检
  * 用 Node 跑完整的游戏循环（含渲染路径），验证：
- *   1. 寻路 / 共振 / 反应 / 波次 / 回声倒带 全链路不抛异常
+ *   1. 寻路 / 共振 / 反应 / 波次 / 地脉突变 全链路不抛异常
  *   2. 不产生 NaN 坐标
  *   3. 能正常推进多个波次
  *
@@ -37,10 +37,24 @@ global.innerWidth = 390;
 global.innerHeight = 844;
 global.devicePixelRatio = 2;
 global.addEventListener = () => { };
-global.localStorage = { getItem: () => null, setItem: () => { } };
+/* 存档桩。默认空档案（等于「新玩家」）；带 --deep 时先塞一份**满解锁**的档案，
+ * 这样 profile.js 在加载时就会解开凝霜（7 座塔）与深渊，深渊档才跑得起来。
+ * 用内存对象而不是直接返回 null —— setItem 得记住写进去的东西，
+ * 否则「结算写盘」这条路径永远测不到。 */
+const DEEP = process.argv.indexOf('--deep') >= 0;
+const memStore = {};
+if (DEEP) {
+  memStore.echo_profile = JSON.stringify({
+    pts: 4000, runs: 12, kills: 9000, wins: 6, best: 20, deepBest: 0, deep: 1
+  });
+}
+global.localStorage = {
+  getItem: (k) => (k in memStore ? memStore[k] : null),
+  setItem: (k, v) => { memStore[k] = String(v); }
+};
 
 /* ---------------------- 载入模块 ---------------------- */
-const files = ['runtime', 'util', 'icons', 'audio', 'config', 'codex', 'grid', 'fx', 'enemies', 'monsters',
+const files = ['runtime', 'util', 'icons', 'audio', 'config', 'codex', 'profile', 'grid', 'fx', 'enemies', 'monsters',
   'towers', 'resonance', 'waves', 'ui', 'render', 'main'];
 for (const f of files) require(path.join(__dirname, '..', 'js', f + '.js'));
 
@@ -48,7 +62,7 @@ const G = global.ECHO_TD;
 if (!G) { console.error('模块加载失败：ECHO_TD 未挂载'); process.exit(1); }
 
 /* ---------------------- 启动 ---------------------- */
-const report = { errors: [], nan: [], reacts: {}, wavesReached: 0, echoCasts: 0, pulses: 0 };
+const report = { errors: [], nan: [], reacts: {}, wavesReached: 0 };
 try {
   G.Runtime.init();
   G.Game.reset();
@@ -59,6 +73,24 @@ try {
     barY: Math.round(G.LAY.barY),
     cards: G.LAY.cards.map(c => Math.round(c.x) + ',' + Math.round(c.y))
   }));
+  console.log('档案:', JSON.stringify({
+    回响点: G.Profile.pts(),
+    上架塔: G.CFG.TOWER_ORDER.length,
+    塔表: G.CFG.TOWER_ORDER.join(','),
+    突变池: G.Profile.mutPool().length + ' 条',
+    卡片数: G.LAY.cards.length,
+    深渊解锁: G.Profile.has('deep'),
+    本局深渊: G.Game.deep
+  }));
+  /* 深渊开关是 --deep 的全部意义所在：没接通就白跑了，直接当失败。 */
+  if (DEEP && !G.Game.deep) {
+    console.error('初始化失败: --deep 已给满解锁档案，但本局 game.deep 仍为 false');
+    process.exit(1);
+  }
+  if (DEEP && G.CFG.TOWER_ORDER.indexOf('cryo') < 0) {
+    console.error('初始化失败: --deep 的档案已解锁凝霜，但上架塔表里没有 cryo');
+    process.exit(1);
+  }
 } catch (e) {
   console.error('初始化失败:', e.stack);
   process.exit(1);
@@ -74,6 +106,7 @@ try {
  *   ④ 反应伤害无视护甲，平砍不穿。
  *   ⑤ 反应打中时，反应名真的挂到了怪身上（渲染那边要画它）。
  *   ⑥ 首领波开始时，提示语里必须有「无视护甲」——那是这只 Boss 的唯一解法。
+ *   ⑦ 重甲 / 巨体的击退距离必须显著短于轻甲（风系不再「一吹全退」）。
  */
 {
   const g = G.Game;
@@ -82,8 +115,8 @@ try {
   G.Game.reset();
   G.Game.startRun();
 
-  // ① / ② 击退：连续位移 + 不出界
-  const e = G.Enemies.create('bulwark', 1, 0, 1);
+  // ① / ② 击退：连续位移 + 不出界（用轻甲怪测「吹得动」这一侧）
+  const e = G.Enemies.create('drifter', 1, 0, 1);
   e.x = G.CFG.BX + G.CFG.CELL * 3 + 32;
   e.y = G.LAY.boardY + G.CFG.CELL * 5;
   e.fx = 0; e.fy = 1;                    // 正往下走 → 击退方向是往上
@@ -107,9 +140,35 @@ try {
     back: +back.toFixed(1), maxStep: +maxStep.toFixed(1),
     inBoard: e.y >= G.LAY.boardY - 0.5
   };
-  // 退了足够远（>70% 的标称距离），但没有任何一帧是一步跳过去的
-  if (!applied || !immuneBlocked || back < PUSH * 0.7 || maxStep > PUSH * 0.25 || !res.push.inBoard) {
+  // 退了足够远（>65% 的标称距离，轻甲怪还留着质量系数 ~1.27），
+  // 但没有任何一帧是一步跳过去的
+  if (!applied || !immuneBlocked || back < PUSH * 0.65 || maxStep > PUSH * 0.25 || !res.push.inBoard) {
     report.errors.push('击退表现异常: ' + JSON.stringify(res.push));
+  }
+
+  /* ⑦ 质量衰减（修复「风系一吹全退」）：同一记击退下，重甲/巨体必须显著短于轻甲。
+   * 旧版两者一样远 —— 一个风塔节点就能把装甲体一路吹回出生线，这就是超模本身。
+   * 现在要求重甲退距 < 轻甲的 65%，且仍 > 0（不是完全免疫，只是「推不太动」）。 */
+  const heavy = G.Enemies.create('bulwark', 1, 0, 1);
+  heavy.x = G.CFG.BX + G.CFG.CELL * 3 + 32;
+  heavy.y = G.LAY.boardY + G.CFG.CELL * 5;
+  heavy.fx = 0; heavy.fy = 1;
+  g.enemies.push(heavy);
+  const hy0 = heavy.y;
+  G.Enemies.push(heavy, heavy.fx, heavy.fy, PUSH);
+  let hDeep = heavy.y;
+  for (let i = 0; i < 45 && heavy.kbT > 0; i++) {
+    G.Enemies.update(g, 1 / 60);
+    if (heavy.y < hDeep) hDeep = heavy.y;
+  }
+  const heavyBack = hy0 - hDeep;
+  res.pushMass = {
+    light: +back.toFixed(1), heavy: +heavyBack.toFixed(1),
+    ratio: +(heavyBack / back).toFixed(2)
+  };
+  if (!(heavyBack < back * 0.65 && heavyBack > 4)) {
+    report.errors.push('击退质量衰减不对（重甲该被砍到轻甲的 2/3 以下）: ' +
+      JSON.stringify(res.pushMass));
   }
 
   // ③ 免疫窗过后还能再推
@@ -300,19 +359,17 @@ function ai(frame) {
     }
     if (low && g.energy >= G.Towers.upgradeCost(low) + 150) G.Game.upgradeTower(low);
   }
-  if (frame % 900 === 0 && g.enemies.length > 8) {
-    const e = g.enemies[0];
-    G.Game.castPulse(e.x, e.y);
-    report.pulses++;
-  }
-  if (g.echo >= G.CFG.ECHO.max && (g.coreHp < 60 || frame % 1800 === 0)) {
-    G.Game.castEcho();
-    report.echoCasts++;
-  }
+  /* 主动技（共振脉冲 / 回声倒带）已随玩法调整下线：
+   * 模拟器不再模拟它们，只验证「纯炮塔（建造 / 升级 / 回收）能否撑过 20 波」
+   * 这一条主路径 —— 这正是现行玩法的实际边界。 */
 }
 
 /* ---------------------- 主循环 ---------------------- */
 const FRAMES = parseInt(process.argv[2] || '12000', 10);
+/* 可选固定种子：node tools/simulate.js 80000 12345
+ * —— 复现某一局，或扫一串种子看通关率是否稳定（不给则随机，模拟真人每局不同）。 */
+const FIXED_SEED = parseInt(process.argv[3] || '0', 10);
+if (FIXED_SEED) G.Game.seed = FIXED_SEED;
 const DT = 1 / 60;
 let lastWave = 0;
 let lastState = G.Game.state;
@@ -396,9 +453,6 @@ console.log('塔数量      :', g.towers.length);
 console.log('共振链      :', res.links.length + ' 条');
 console.log('反应节点    :', res.nodes.length + ' 个 ' +
   JSON.stringify(res.nodes.map(n => n.def.name)));
-console.log('回声释放    :', report.echoCasts, ' 次');
-console.log('脉冲释放    :', report.pulses, ' 次');
-console.log('快照数量    :', g.snaps.length);
 console.log('特效帧数    :', G.FX.count(), ' 峰值', fxPeak, '(上限 ' + 1100 + ')');
 console.log('音频可用    :', G.Audio ? (G.Audio.available() ? '是' : '否（Node 环境，静默降级）') : '模块缺失');
 console.log('塔被摧毁    :', report.towerLost || 0, ' 次');
@@ -419,8 +473,5 @@ if (report.nan.length) {
 if (report.wavesReached < 3) {
   console.log('\n[FAIL] 波次推进异常，仅到达第 ' + report.wavesReached + ' 波');
   process.exit(4);
-}
-if (!report.echoCasts) {
-  console.log('\n[WARN] 未释放过回声倒带，该路径未被覆盖');
 }
 console.log('\n[OK] 全链路无异常');

@@ -1,0 +1,631 @@
+{
+  "meta": {
+    "totalWaves": 20,
+    "coreHp": 100,
+    "startEnergy": 320,
+    "prepTime": 9,
+    "cell": 64,
+    "boardW": 640,
+    "boardH": 832,
+    "maxLevel": 5,
+    "startSpots": [
+      0,
+      9
+    ]
+  },
+  "elem": {
+    "pyro": {
+      "key": "pyro",
+      "name": "火",
+      "color": "#ef7938",
+      "soft": "#ffc08a"
+    },
+    "hydro": {
+      "key": "hydro",
+      "name": "水",
+      "color": "#4cc2f1",
+      "soft": "#a8e6ff"
+    },
+    "cryo": {
+      "key": "cryo",
+      "name": "冰",
+      "color": "#7ad3e6",
+      "soft": "#d0f4ff"
+    },
+    "electro": {
+      "key": "electro",
+      "name": "雷",
+      "color": "#a77ffa",
+      "soft": "#dcc8ff"
+    },
+    "anemo": {
+      "key": "anemo",
+      "name": "风",
+      "color": "#33ccb3",
+      "soft": "#8af2e0"
+    },
+    "geo": {
+      "key": "geo",
+      "name": "岩",
+      "color": "#fabb57",
+      "soft": "#ffe0a8"
+    },
+    "dendro": {
+      "key": "dendro",
+      "name": "草",
+      "color": "#a5ec25",
+      "soft": "#dcff96"
+    }
+  },
+  "towerOrder": [
+    "pyro",
+    "hydro",
+    "dendro",
+    "anemo",
+    "electro",
+    "geo"
+  ],
+  "towerOrderAll": [
+    "pyro",
+    "hydro",
+    "dendro",
+    "anemo",
+    "cryo",
+    "electro",
+    "geo"
+  ],
+  "towers": {
+    "pyro": {
+      "key": "pyro",
+      "name": "炎爆",
+      "elem": "pyro",
+      "cost": 60,
+      "hp": 260,
+      "dmg": 17,
+      "range": 152,
+      "rate": 1.15,
+      "kind": "bolt",
+      "bspeed": 460,
+      "blife": 1.6
+    },
+    "hydro": {
+      "key": "hydro",
+      "name": "澄流",
+      "elem": "hydro",
+      "cost": 65,
+      "hp": 260,
+      "dmg": 9,
+      "range": 168,
+      "rate": 0.95,
+      "kind": "wave",
+      "aoe": 56,
+      "slow": 0.3,
+      "slowT": 1.4
+    },
+    "dendro": {
+      "key": "dendro",
+      "name": "青蔓",
+      "elem": "dendro",
+      "cost": 75,
+      "hp": 250,
+      "dmg": 11,
+      "range": 150,
+      "rate": 0.62,
+      "kind": "spore",
+      "aoe": 52,
+      "burnDps": 14,
+      "burnT": 3.2
+    },
+    "anemo": {
+      "key": "anemo",
+      "name": "流风",
+      "elem": "anemo",
+      "cost": 80,
+      "hp": 240,
+      "dmg": 7,
+      "range": 138,
+      "rate": 0.8,
+      "kind": "gust",
+      "aoe": 96,
+      "push": 18
+    },
+    "cryo": {
+      "key": "cryo",
+      "name": "凝霜",
+      "elem": "cryo",
+      "cost": 85,
+      "hp": 260,
+      "dmg": 10,
+      "range": 164,
+      "rate": 0.85,
+      "kind": "wave",
+      "aoe": 58,
+      "slow": 0.5,
+      "slowT": 2,
+      "freezeChance": 0.22,
+      "freezeT": 1.1
+    },
+    "electro": {
+      "key": "electro",
+      "name": "掣雷",
+      "elem": "electro",
+      "cost": 90,
+      "hp": 240,
+      "dmg": 24,
+      "range": 192,
+      "rate": 0.7,
+      "kind": "chain",
+      "chain": 3,
+      "chainRange": 132
+    },
+    "geo": {
+      "key": "geo",
+      "name": "磐岩",
+      "elem": "geo",
+      "cost": 100,
+      "hp": 340,
+      "dmg": 52,
+      "range": 148,
+      "rate": 0.42,
+      "kind": "spike",
+      "stun": 0.45
+    }
+  },
+  "lv": {
+    "dmg": 0.32,
+    "range": 0.06,
+    "rate": 0.12,
+    "hp": 0.35
+  },
+  "resonance": {
+    "chainDmg": 0.16,
+    "chainRate": 0.08,
+    "chainCap": 7,
+    "reactions": {
+      "hydro|pyro": {
+        "name": "蒸发",
+        "cd": 2.4,
+        "radius": 76,
+        "dmg": 46,
+        "push": 20,
+        "color": "#ffd08a",
+        "kind": "burst"
+      },
+      "cryo|pyro": {
+        "name": "融化",
+        "cd": 2.6,
+        "radius": 68,
+        "dmg": 58,
+        "push": 14,
+        "color": "#ffb37a",
+        "kind": "burst"
+      },
+      "pyro|electro": {
+        "name": "超载",
+        "cd": 2.8,
+        "radius": 118,
+        "dmg": 26,
+        "jumps": 4,
+        "color": "#ff7bd0",
+        "kind": "overload"
+      },
+      "electro|hydro": {
+        "name": "感电",
+        "cd": 2.4,
+        "radius": 128,
+        "dmg": 16,
+        "jumps": 5,
+        "color": "#b7a3ff",
+        "kind": "echain"
+      },
+      "cryo|electro": {
+        "name": "超导",
+        "cd": 2.4,
+        "radius": 92,
+        "dmg": 9,
+        "dur": 2.6,
+        "extra": 0.25,
+        "color": "#8de8ff",
+        "kind": "super"
+      },
+      "cryo|hydro": {
+        "name": "冻结",
+        "cd": 3,
+        "radius": 84,
+        "dmg": 8,
+        "dur": 1.2,
+        "color": "#a8ecff",
+        "kind": "freeze"
+      },
+      "anemo|pyro": {
+        "name": "扩散",
+        "cd": 3.2,
+        "radius": 104,
+        "dmg": 14,
+        "push": 22,
+        "color": "#8af2e0",
+        "kind": "swirl"
+      },
+      "anemo|hydro": {
+        "name": "扩散",
+        "cd": 3.2,
+        "radius": 104,
+        "dmg": 14,
+        "push": 22,
+        "color": "#8af2e0",
+        "kind": "swirl"
+      },
+      "anemo|cryo": {
+        "name": "扩散",
+        "cd": 3.2,
+        "radius": 104,
+        "dmg": 14,
+        "push": 22,
+        "color": "#8af2e0",
+        "kind": "swirl"
+      },
+      "anemo|electro": {
+        "name": "扩散",
+        "cd": 3.2,
+        "radius": 104,
+        "dmg": 14,
+        "push": 22,
+        "color": "#8af2e0",
+        "kind": "swirl"
+      },
+      "anemo|dendro": {
+        "name": "扩散",
+        "cd": 3.2,
+        "radius": 104,
+        "dmg": 14,
+        "push": 22,
+        "color": "#8af2e0",
+        "kind": "swirl"
+      },
+      "anemo|geo": {
+        "name": "湍流",
+        "cd": 3.4,
+        "radius": 96,
+        "dmg": 12,
+        "push": 26,
+        "color": "#a8ecd8",
+        "kind": "swirl"
+      },
+      "geo|hydro": {
+        "name": "结晶",
+        "cd": 4,
+        "radius": 110,
+        "dur": 5,
+        "color": "#ffe0a8",
+        "kind": "crystal"
+      },
+      "geo|pyro": {
+        "name": "结晶",
+        "cd": 4,
+        "radius": 110,
+        "dur": 5,
+        "color": "#ffe0a8",
+        "kind": "crystal"
+      },
+      "geo|cryo": {
+        "name": "结晶",
+        "cd": 4,
+        "radius": 110,
+        "dur": 5,
+        "color": "#ffe0a8",
+        "kind": "crystal"
+      },
+      "geo|electro": {
+        "name": "结晶",
+        "cd": 4,
+        "radius": 110,
+        "dur": 5,
+        "color": "#ffe0a8",
+        "kind": "crystal"
+      },
+      "geo|dendro": {
+        "name": "结晶",
+        "cd": 4,
+        "radius": 110,
+        "dur": 5,
+        "color": "#ffe0a8",
+        "kind": "crystal"
+      },
+      "dendro|hydro": {
+        "name": "绽放",
+        "cd": 2.8,
+        "radius": 96,
+        "dmg": 40,
+        "color": "#b8f04c",
+        "kind": "bloom"
+      },
+      "dendro|electro": {
+        "name": "激化",
+        "cd": 3.4,
+        "radius": 118,
+        "dmg": 10,
+        "dur": 4,
+        "bonus": 0.3,
+        "color": "#d6ff7a",
+        "kind": "quicken"
+      },
+      "dendro|pyro": {
+        "name": "燃烧",
+        "cd": 2.6,
+        "radius": 82,
+        "dps": 26,
+        "dur": 2.6,
+        "color": "#ffb347",
+        "kind": "burn"
+      }
+    }
+  },
+  "mutations": [
+    {
+      "key": "swift",
+      "name": "疾风地脉",
+      "desc": "敌人移动加速",
+      "speedMul": 1.22
+    },
+    {
+      "key": "regrowth",
+      "name": "回响地脉",
+      "desc": "敌人持续回血",
+      "regen": 8
+    },
+    {
+      "key": "eclipse",
+      "name": "蚀影地脉",
+      "desc": "击杀收益下降",
+      "rewardMul": 0.75
+    },
+    {
+      "key": "frenzy",
+      "name": "狂乱地脉",
+      "desc": "速度与冲击齐升",
+      "speedMul": 1.14,
+      "dmgMul": 1.25
+    },
+    {
+      "key": "ironhide",
+      "name": "铁甲地脉",
+      "desc": "敌人护甲提升",
+      "armorAdd": 4,
+      "hpMul": 1.1
+    },
+    {
+      "key": "bloodfury",
+      "name": "血怒地脉",
+      "desc": "敌血量与冲击俱增",
+      "hpMul": 1.22,
+      "dmgMul": 1.3
+    },
+    {
+      "key": "swarm",
+      "name": "涌动地脉",
+      "desc": "敌人成群涌来",
+      "spawnMul": 1.5
+    },
+    {
+      "key": "titanfall",
+      "name": "巨力地脉",
+      "desc": "敌人更厚更硬",
+      "hpMul": 1.35,
+      "armorAdd": 2
+    }
+  ],
+  "vis": {
+    "bulletTrail": 0.2,
+    "trailRate": 0.022,
+    "towerCoolRing": true,
+    "linkFlow": 0.9,
+    "hitText": true,
+    "hitTextMin": 26,
+    "muzzleLen": 24,
+    "reactTagT": 1.15
+  },
+  "monExtent": {
+    "up": 1.44,
+    "down": 1.31,
+    "side": 1.36
+  },
+  "enemies": {
+    "drifter": {
+      "key": "drifter",
+      "name": "游荡体",
+      "hp": 48,
+      "speed": 58,
+      "r": 13,
+      "reward": 6,
+      "dmg": 1,
+      "armor": 0,
+      "color": "#6ee7ff"
+    },
+    "sprinter": {
+      "key": "sprinter",
+      "name": "疾行体",
+      "hp": 32,
+      "speed": 120,
+      "r": 11,
+      "reward": 7,
+      "dmg": 1,
+      "armor": 0,
+      "color": "#ffe066"
+    },
+    "bulwark": {
+      "key": "bulwark",
+      "name": "装甲体",
+      "hp": 150,
+      "speed": 38,
+      "r": 17,
+      "reward": 14,
+      "dmg": 3,
+      "armor": 4,
+      "color": "#9aa7c7"
+    },
+    "sunder": {
+      "key": "sunder",
+      "name": "破墙者",
+      "hp": 78,
+      "speed": 56,
+      "r": 15,
+      "reward": 13,
+      "dmg": 2,
+      "armor": 1,
+      "color": "#ff8a4c",
+      "towerDps": 13,
+      "towerRange": 74
+    },
+    "phaser": {
+      "key": "phaser",
+      "name": "相位体",
+      "hp": 82,
+      "speed": 70,
+      "r": 13,
+      "reward": 14,
+      "dmg": 2,
+      "armor": 1,
+      "color": "#c08bff",
+      "phaseCycle": 6,
+      "phaseDur": 2.2
+    },
+    "boss": {
+      "key": "boss",
+      "name": "共鸣吞噬者",
+      "hp": 560,
+      "speed": 34,
+      "r": 27,
+      "reward": 150,
+      "dmg": 26,
+      "armor": 4,
+      "color": "#ff4d6d",
+      "boss": true,
+      "suppress": 140
+    },
+    "swarmling": {
+      "key": "swarmling",
+      "name": "群涌体",
+      "hp": 18,
+      "speed": 76,
+      "r": 8,
+      "reward": 2,
+      "dmg": 1,
+      "armor": 0,
+      "color": "#7cffb0"
+    },
+    "wraith": {
+      "key": "wraith",
+      "name": "虚影体",
+      "hp": 50,
+      "speed": 104,
+      "r": 10,
+      "reward": 8,
+      "dmg": 1,
+      "armor": 0,
+      "color": "#9be7ff",
+      "phaseCycle": 4,
+      "phaseDur": 1.5
+    },
+    "titan": {
+      "key": "titan",
+      "name": "巨岩体",
+      "hp": 300,
+      "speed": 26,
+      "r": 22,
+      "reward": 22,
+      "dmg": 6,
+      "armor": 4,
+      "color": "#c9b08a"
+    },
+    "tinker": {
+      "key": "tinker",
+      "name": "机巧体",
+      "hp": 80,
+      "speed": 60,
+      "r": 13,
+      "reward": 11,
+      "dmg": 2,
+      "armor": 1,
+      "color": "#ffc24c",
+      "towerDps": 24,
+      "towerRange": 84
+    },
+    "mender": {
+      "key": "mender",
+      "name": "织愈体",
+      "hp": 90,
+      "speed": 48,
+      "r": 13,
+      "reward": 12,
+      "dmg": 1,
+      "armor": 0,
+      "color": "#ff9ad2",
+      "healRange": 104,
+      "healPerSec": 7
+    }
+  },
+  "growth": {
+    "echoPoint": {
+      "perWave": 12,
+      "perKillDiv": 8,
+      "leakPenalty": 15,
+      "winBonus": 200
+    },
+    "unlocks": [
+      {
+        "key": "muts",
+        "name": "地脉谱系",
+        "color": "#a77ffa",
+        "desc": "每波随机的地脉突变池扩容",
+        "counts": [
+          4,
+          6,
+          8
+        ],
+        "tiers": [
+          {
+            "at": 0,
+            "label": "4 条"
+          },
+          {
+            "at": 1000,
+            "label": "6 条"
+          },
+          {
+            "at": 3000,
+            "label": "8 条"
+          }
+        ]
+      },
+      {
+        "key": "cryo",
+        "name": "凝霜回归",
+        "color": "#7ad3e6",
+        "desc": "冰塔「凝霜」重新上架建造栏",
+        "tiers": [
+          {
+            "at": 1300,
+            "label": "上架"
+          }
+        ]
+      },
+      {
+        "key": "deep",
+        "name": "深渊",
+        "color": "#ff4d6d",
+        "desc": "敌人血量 ×1.35，独立最高分",
+        "tiers": [
+          {
+            "at": 3800,
+            "label": "开启"
+          }
+        ]
+      }
+    ],
+    "mutBase": 4,
+    "deep": {
+      "hpMul": 1.35,
+      "rewardMul": 1.15
+    }
+  }
+}

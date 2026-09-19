@@ -75,7 +75,7 @@ const canvasStub = {
   addEventListener: () => { }
 };
 
-const FILES = ['runtime', 'util', 'icons', 'audio', 'config', 'settings', 'codex', 'grid', 'fx', 'enemies', 'monsters',
+const FILES = ['runtime', 'util', 'icons', 'audio', 'config', 'settings', 'codex', 'profile', 'grid', 'fx', 'enemies', 'monsters',
   'towers', 'resonance', 'waves', 'ui', 'render', 'main'];
 
 /** 在全新的模块环境里跑一次 init()，可选指定字号档 */
@@ -225,11 +225,20 @@ for (let ti = 0; ti < 12; ti++) PHASES.push(ti / 12);
 {
   const G = load({ w: 390, h: 844 });
   const subs = G.UI.menuSubBtns();
-  check(subs.length === 3, '菜单次级按钮正好三个（玩法 / 图鉴 / 设置）', String(subs.length));
+  check(subs.length === 4, '菜单次级按钮正好四个（玩法 / 图鉴 / 回响 / 设置）', String(subs.length));
   check(subs.every(s => s.key && s.label && s.rect), '菜单次级按钮都带 key / label / rect', '');
   check(subs.every(s => estW(s.label, G.CFG.FS(18)) + G.CFG.S(16) <= s.rect.w),
     '菜单次级按钮的标签都装得进按钮',
     subs.filter(s => estW(s.label, G.CFG.FS(18)) + G.CFG.S(16) > s.rect.w).map(s => s.label).join(', '));
+  /* 四个按钮并排后要互不重叠、且整排在内容区之内。三个变四个时
+   * 单格宽度从 196 压到 142 —— 压过头就会叠字，这两条是给那次改动的保险。 */
+  for (let si = 1; si < subs.length; si++) {
+    const a = subs[si - 1].rect, b = subs[si].rect;
+    check(b.x >= a.x + a.w, '次级按钮 ' + si + ' 不压前一个', b.x + ' vs ' + (a.x + a.w));
+  }
+  const firstR = subs[0].rect, lastR = subs[subs.length - 1].rect;
+  check(firstR.x >= 46 - 0.5, '次级按钮左沿不越内容区', String(firstR.x));
+  check(lastR.x + lastR.w <= 674 + 0.5, '次级按钮右沿不越内容区', String(lastR.x + lastR.w));
 
   G.Game.state = 'menu';
   GLOBAL_REC.reset();
@@ -245,7 +254,75 @@ for (let ti = 0; ti < 12; ti++) PHASES.push(ti / 12);
     if (!hit) undrawn.push(s.label);
   }
   check(pts.length > 0, '菜单这一帧确实画了东西（记账 ctx 接通了）', String(pts.length));
-  check(undrawn.length === 0, '菜单三个次级按钮都真的画了（不是只有几何和命中）', undrawn.join(', '));
+  check(undrawn.length === 0, '菜单四个次级按钮都真的画了（不是只有几何和命中）', undrawn.join(', '));
+}
+
+/* ---------------------- 0c) 凝霜解锁之后的建造栏版式 ----------------------
+ * 冰塔「凝霜」是成长系统里**唯一会动布局**的解锁项：上架后建造栏从 6 张卡
+ * 变 7 张，两行 3+3 → 4+3、卡宽 221 → 164、栏高仍是 236。
+ *
+ * 为什么单独测一次：常规断言跑的都是「未解锁」的默认态（profile 在 Node 里
+ * 读不到存档，永远返回空档案），所以解锁后那一套几何没人看着 ——
+ * 而它恰恰是加法式改动里最容易悄悄错位的地方（卡宽算错就会叠字）。
+ * 这里直接把点数推过最后一档门槛，再 fit 一次，把两行 4+3 量一遍。
+ * 两种状态都必须绿，缺一不可。
+ */
+{
+  const G = load({ w: 390, h: 844 });
+  const CFGV = G.CFG;
+
+  const before = CFGV.TOWER_ORDER.length;
+  // 一次 20 波通关约 690 点（20×12 + 2000÷8 + 通关 200），8 次足够过 3800 的最后一档
+  for (let i = 0; i < 8; i++) {
+    G.Profile.settle({ wave: 20, kills: 2000, leaked: 0, deep: 0 }, true);
+  }
+  check(G.Profile.pts() > 0, '档案能累加回响点', String(G.Profile.pts()));
+  check(G.Profile.has('cryo'), '点数够了能解锁凝霜', String(G.Profile.pts()));
+  check(G.Profile.has('deep'), '点数够了能解锁深渊', '');
+  check(G.Profile.mutPool().length === 8, '地脉谱系满档时突变池 8 条',
+    String(G.Profile.mutPool().length));
+  check(CFGV.TOWER_ORDER.indexOf('cryo') >= 0, '解锁后凝霜回到上架塔表', CFGV.TOWER_ORDER.join(','));
+  check(CFGV.TOWER_ORDER.length === before + 1, '解锁后塔数 +1',
+    before + ' → ' + CFGV.TOWER_ORDER.length);
+
+  G.Runtime.fit();
+  const LAY2 = G.LAY, cards2 = LAY2.cards;
+  check(cards2.length === 7, '解锁后正好 7 张卡', String(cards2.length));
+  check(LAY2.barH === 236, '解锁后栏高仍是 236（仍两行）', String(LAY2.barH));
+  check(cards2[0].w === 164, '解锁后卡宽 164', String(cards2[0].w));
+  check(cards2.filter(c => c.row === 0).length === 4, '解锁后第一行 4 张', '');
+  check(cards2.filter(c => c.row === 1).length === 3, '解锁后第二行 3 张', '');
+  let ov2 = 0;
+  for (let a = 0; a < cards2.length; a++) {
+    for (let b = a + 1; b < cards2.length; b++) {
+      if (overlap(
+        { x1: cards2[a].x, y1: cards2[a].y, x2: cards2[a].x + cards2[a].w, y2: cards2[a].y + cards2[a].h },
+        { x1: cards2[b].x, y1: cards2[b].y, x2: cards2[b].x + cards2[b].w, y2: cards2[b].y + cards2[b].h })) ov2++;
+    }
+  }
+  check(ov2 === 0, '解锁后卡片两两不重叠', String(ov2));
+  /* 横向容差跟常规卡片断言同口径（12 ~ 708）：建造栏的卡片是「按 720 居中」
+   * 而不是「按 40 边距排」—— 7 张卡时首行从 x≈20 起，拿 40 去卡会误报。 */
+  check(cards2.every(c => c.x >= 12 - 0.5 && c.x + c.w <= 708 + 0.5), '解锁后卡片横向在栏内', '');
+  check(cards2.every(c => c.y + c.h <= LAY2.barY + LAY2.barH + 0.5), '解锁后卡片纵向在栏内', '');
+
+  // 卡宽从 221 压到 164 之后，塔名与「造价 · 攻击方式」还得装得下
+  let wideName = 0, wideSub = 0;
+  for (const k of CFGV.TOWER_ORDER) {
+    const d = CFGV.TOWERS[k];
+    wideName = Math.max(wideName, estW(d.name, CFGV.FS(15)));
+    wideSub = Math.max(wideSub, estW('◈ ' + d.cost, CFGV.FS(12)));
+  }
+  check(wideName + CFGV.S(16) <= cards2[0].w, '解锁后卡宽容得下最长塔名',
+    `${(wideName + CFGV.S(16)).toFixed(0)} vs ${cards2[0].w}`);
+  check(wideSub + CFGV.S(16) <= cards2[0].w, '解锁后卡宽容得下副标题',
+    `${(wideSub + CFGV.S(16)).toFixed(0)} vs ${cards2[0].w}`);
+
+  /* 深渊开关的「可用/不可用」两态都要能画：解锁前是置灰的提示按钮，
+   * 解锁后才是可点开关。这里只验几何（渲染走的是同一个 btn()）。 */
+  const db2 = G.UI.profileDeepBtn();
+  check(db2.x >= 40 - 0.5 && db2.x + db2.w <= 680 + 0.5, '深渊开关横向在屏内', '');
+  check(db2.y + db2.h <= LAY2.codexTop + LAY2.codexH + 0.5, '深渊开关在图鉴页块内', '');
 }
 
 const LEVELS = load({ w: 390, h: 844 }).CFG.FONT_LEVELS;
@@ -580,37 +657,36 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
     if (cap) {
       const capRect = { x1: cap.left, y1: cap.top, x2: cap.right, y2: cap.bottom };
 
-      // 3) 音效开关必须整个落在胶囊下方
-      const sb = LAY.soundBtn;
+      // 3) 设置键必须整个落在胶囊下方
+      const sb = LAY.settingsBtn;
       const sbRect = { x1: DX(sb.x), y1: DY(sb.y), x2: DX(sb.x + sb.w), y2: DY(sb.y + sb.h) };
-      line.checks.push(check(sbRect.y1 >= cap.bottom - EPS, '音效开关在胶囊下方',
-        `开关顶 ${sbRect.y1.toFixed(1)}px vs 胶囊底 ${cap.bottom}px`));
-      line.checks.push(check(!overlap(sbRect, capRect), '音效开关不与胶囊重叠',
-        `开关[${sbRect.x1.toFixed(0)},${sbRect.y1.toFixed(0)}]-[${sbRect.x2.toFixed(0)},${sbRect.y2.toFixed(0)}]`));
+      line.checks.push(check(sbRect.y1 >= cap.bottom - EPS, '设置键在胶囊下方',
+        `键顶 ${sbRect.y1.toFixed(1)}px vs 胶囊底 ${cap.bottom}px`));
+      line.checks.push(check(!overlap(sbRect, capRect), '设置键不与胶囊重叠',
+        `键[${sbRect.x1.toFixed(0)},${sbRect.y1.toFixed(0)}]-[${sbRect.x2.toFixed(0)},${sbRect.y2.toFixed(0)}]`));
 
-      // 4) 右对齐那一列的包围盒不能碰胶囊（宽度按估算字宽算）
+      // 4) 右对齐那一列的包围盒不能碰胶囊（宽度按估算字宽算；能量字号已降到 22）
       const rcWide = estW('最高分 12345', F(12));
       const rc = {
         x1: DX(H.hudRight - rcWide), y1: DY(H.waveTxt - F(19) / 2),
-        x2: DX(H.hudRight), y2: DY(H.energyVal + F(30) / 2)
+        x2: DX(H.hudRight), y2: DY(H.energyVal + F(20) / 2)
       };
       line.checks.push(check(!overlap(rc, capRect), '右对齐列不碰胶囊',
         `${H.layout} 列[${rc.x1.toFixed(0)},${rc.y1.toFixed(0)}]-[${rc.x2.toFixed(0)},${rc.y2.toFixed(0)}] vs 胶囊[${cap.left},${cap.top}]-[${cap.right},${cap.bottom}]`));
 
-      // 5) 音效开关不能压到右列或开波按钮
+      // 5) 设置键挂在开波按钮右侧那一格：横向与它分离，纵向与右列分离
       line.checks.push(check(sbRect.x1 >= rc.x2 - EPS || sbRect.y1 >= rc.y2 - EPS || sbRect.y2 <= rc.y1 + EPS,
-        '音效开关与右列分离', `开关 x1=${sbRect.x1.toFixed(0)} vs 右列 x2=${rc.x2.toFixed(0)}`));
-      line.checks.push(check(sbRect.y2 <= DY(H.waveBtn.y) + EPS, '音效开关在开波按钮上方',
-        `${sbRect.y2.toFixed(1)} vs ${DY(H.waveBtn.y).toFixed(1)}`));
+        '设置键与右列分离', `键 x1=${sbRect.x1.toFixed(0)} vs 右列 x2=${rc.x2.toFixed(0)}`));
+      line.checks.push(check(sbRect.x1 >= DX(LAY.waveBtn.x + LAY.waveBtn.w) - EPS, '设置键不压开波按钮',
+        `键 x1=${sbRect.x1.toFixed(0)} vs 开波按钮右沿 ${DX(LAY.waveBtn.x + LAY.waveBtn.w).toFixed(0)}`));
     }
 
-    // 6) HUD 内部不互相压
+    // 6) HUD 内部不互相压（回声条已随倒带下线，左列只剩「血条 → 开波按钮」）
     line.checks.push(check(LAY.hpBar.y > H.hpLabel + F(13) / 2, '血条标题有间距', `${LAY.hpBar.y} vs ${H.hpLabel}`));
-    line.checks.push(check(LAY.ecBar.y > H.ecLabel + F(13) / 2, '回声条标题有间距', `${LAY.ecBar.y} vs ${H.ecLabel}`));
-    line.checks.push(check(H.waveBtn.y - (LAY.ecBar.y + LAY.ecBar.h) >= S(12), '开波按钮不压回声条',
-      `间隙 ${H.waveBtn.y - (LAY.ecBar.y + LAY.ecBar.h)}px`));
-    line.checks.push(check(H.energyVal + F(30) / 2 < H.waveBtn.y, '能量数字不压开波按钮',
-      `${H.energyVal + F(30) / 2} vs ${H.waveBtn.y}`));
+    line.checks.push(check(H.waveBtn.y - (LAY.hpBar.y + LAY.hpBar.h) >= S(12), '开波按钮不压血条',
+      `间隙 ${H.waveBtn.y - (LAY.hpBar.y + LAY.hpBar.h)}px`));
+    line.checks.push(check(H.energyVal + F(20) / 2 < H.waveBtn.y, '能量数字不压开波按钮',
+      `${H.energyVal + F(20) / 2} vs ${H.waveBtn.y}`));
 
     // 6b) 左右两列在同一条水平带上最容易叠字 —— 宽度全部按估算字宽现算
     const titleRight = 40 + estW('回声防线', F(28));
@@ -628,14 +704,14 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
     line.checks.push(check(LAY.boardY + LAY.boardH <= LAY.barY + EPS, '棋盘在建造栏之上',
       `棋盘底 ${Math.round(LAY.boardY + LAY.boardH)} vs 栏顶 ${Math.round(LAY.barY)}`));
 
-    /* 7b) 底部卡片（塔数 + 脉冲 + 倒带，当前 6 + 2 = 8 张）：
-     *     两行 4+4 平铺、每张都在栏内、两两不重叠、同行与两行之间都有呼吸位，
+    /* 7b) 底部卡片（只剩炮台，当前 6 张）：
+     *     两行 3+3 平铺、每张都在栏内、两两不重叠、同行与两行之间都有呼吸位，
      *     卡名/副标题在卡内排得下。更早那版一行 9 张（卡宽只有 72）挤得看不清，
      *     这里的 minGap / 卡宽断言就是防它退回去。 */
     const cards = LAY.cards;
-    const perRow = Math.ceil((CFG.TOWER_ORDER.length + 2) / 2);
-    line.checks.push(check(cards.length === CFG.TOWER_ORDER.length + 2, '卡片数量 = 塔数 + 2',
-      `${cards.length} vs ${CFG.TOWER_ORDER.length + 2}`));
+    const perRow = Math.ceil(CFG.TOWER_ORDER.length / 2);
+    line.checks.push(check(cards.length === CFG.TOWER_ORDER.length, '卡片数量 = 塔数',
+      `${cards.length} vs ${CFG.TOWER_ORDER.length}`));
     const rowOf = r => (r.row === undefined ? 0 : r.row);
     const rowIdx = Array.from(new Set(cards.map(rowOf))).sort((a, b) => a - b);
     line.checks.push(check(rowIdx.length === 2, '卡片铺成两行', `实际 ${rowIdx.length} 行`));
@@ -703,6 +779,31 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
       line.checks.push(check(top >= (LAY.insetTop || 0) - EPS && top + h <= LAY.designH + EPS,
         nm + '版式在屏内', `块[${top}, ${top + h}] vs 设计高 ${Math.round(LAY.designH)}`));
     }
+
+    /* 7c-2) 结算面板内部：六行数据（最后一行含「本局回响点」，字号 24）要落在面板里，
+     *       且不与「再来一局」按钮叠。几何（S(170) 起、行距 S(44)、六行、按钮 S(424)）
+     *       必须与 render.js 的 drawOver 一致 —— 往结算页加数据行时这里会先报出来。
+     *       注意「本局新解锁」是**改写副标题**、不是新增一行：副标题与首行数据之间
+     *       只有 S(52)，塞第三行字在大字号档下必挤（S 与 F 两条曲线不同源）。 */
+    const ovPanelBottom = LAY.overTop + S(16) + S(516);
+    const ovLastY = LAY.overTop + S(170) + 5 * S(44);
+    const ovAgain = UI.againBtn();
+    line.checks.push(check(ovLastY + F(24) / 2 <= ovPanelBottom + EPS, '结算数据行在面板内',
+      `${(ovLastY + F(24) / 2).toFixed(0)} vs 面板底 ${ovPanelBottom.toFixed(0)}`));
+    line.checks.push(check(ovLastY + F(24) / 2 <= ovAgain.y - EPS, '结算最后一行不与按钮叠',
+      `${(ovLastY + F(24) / 2).toFixed(0)} vs 按钮顶 ${ovAgain.y.toFixed(0)}`));
+    line.checks.push(check(ovAgain.y + ovAgain.h <= LAY.overTop + LAY.overH + EPS, '结算按钮在页面块内',
+      `按钮底 ${(ovAgain.y + ovAgain.h).toFixed(0)} vs 块底 ${(LAY.overTop + LAY.overH).toFixed(0)}`));
+    /* 副标题位在有新解锁时会被改写成「解锁 · XX」，所以它也可能变长、变粗 ——
+     * 既要装得下面板宽，也要与首行数据留出间距。 */
+    const ovSubY = LAY.overTop + S(118);
+    const ovFirstY = LAY.overTop + S(170);
+    line.checks.push(check(ovSubY + F(16) / 2 <= ovFirstY - F(16) / 2 + EPS, '结算副标题不与首行数据叠',
+      `副标题底 ${(ovSubY + F(16) / 2).toFixed(0)} vs 首行顶 ${(ovFirstY - F(16) / 2).toFixed(0)}`));
+    const worstUnlock = '解锁 · ' + CFG.UNLOCKS.map(l => l.name).join(' / ');
+    line.checks.push(check(estW(worstUnlock, F(16)) <= 588 - 2 * S(24) + EPS,
+      '结算解锁文案最坏情况装得下面板',
+      `宽 ${estW(worstUnlock, F(16)).toFixed(0)} vs 可容 ${(588 - 2 * S(24)).toFixed(0)}（${worstUnlock}）`));
 
     // 7d) 玩法正文：底边在块内，且每行不越过右边框。
     //     文案写在 ui.js 的 UI.HELP 里，渲染与自检共用同一份，
@@ -863,6 +964,55 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
     line.checks.push(check(detBack.y + detBack.h <= LAY.codexTop + LAY.codexH + EPS, '图鉴「返回列表」在页面块内',
       `按钮底 ${detBack.y + detBack.h} vs 块底 ${LAY.codexTop + LAY.codexH}`));
 
+    /* 7i) 回响档案（图鉴第三页）：总览卡 → 三条解锁线 → 战功录 → 深渊开关 → 说明行。
+     *     这一页刻意**不新开整屏版式**，而是塞进图鉴的第三个 tab —— 因为新页面的
+     *     高度会进 pageNeed（= max(MENU_H, SET_H, HELP_H, OVER_H, CODEX_H, POP_H)），
+     *     一旦超过 HELP_H(1150) 就会把短屏机型的整体缩放一起拉小，等于动战斗版式。
+     *     下面这几条就是卡「全部内容都在 codexH 之内」的。 */
+    const pfCard = UI.profileCard();
+    const pfLines = CFG.UNLOCKS.map((_, i) => UI.profileLine(i));
+    const pfBars = CFG.UNLOCKS.map((_, i) => UI.profileBar(i));
+    const pfStats = UI.profileStats();
+    const pfDeep = UI.profileDeepBtn();
+    const pfBottom = LAY.codexTop + LAY.codexH;
+    const pfLast = pfLines[pfLines.length - 1];
+
+    line.checks.push(check(pfCard.y >= LAY.codexTop + S(UI.CODEX_BODY_Y) - EPS, '档案总览卡在内容区', ''));
+    line.checks.push(check(pfLines.length === CFG.UNLOCKS.length, '档案解锁线条数与 CFG.UNLOCKS 一致', ''));
+    let pfOut = 0, pfHit = 0;
+    for (let i = 0; i < pfLines.length; i++) {
+      if (pfLines[i].x < 40 - EPS || pfLines[i].x + pfLines[i].w > 680 + EPS) pfOut++;
+      if (i > 0 && pfLines[i].y < pfLines[i - 1].y + pfLines[i - 1].h) pfHit++;
+    }
+    line.checks.push(check(pfOut === 0, '档案解锁线横向在屏内', ''));
+    line.checks.push(check(pfHit === 0, '档案解锁线两两不重叠', String(pfHit)));
+    line.checks.push(check(pfStats.y >= pfLast.y + pfLast.h, '战功录在解锁线之下',
+      `${pfStats.y} vs ${pfLast.y + pfLast.h}`));
+    line.checks.push(check(pfDeep.y >= pfStats.y + pfStats.h, '深渊开关在战功录之下', ''));
+    line.checks.push(check(pfDeep.y + pfDeep.h <= pfBottom + EPS, '深渊开关在页面块内',
+      `按钮底 ${pfDeep.y + pfDeep.h} vs 块底 ${pfBottom}`));
+    line.checks.push(check(UI.codexHint().y >= pfDeep.y + pfDeep.h, '档案说明行在深渊开关之下', ''));
+    /* 说明行按**基线**判在块内，不按文字半高 —— 它本来就是这个页面的最后一根基线，
+     * 三个 tab 共用同一个 y（S(992)），而块高 S(1000) 只留 8 的余量；
+     * 按半高（大号档 F(12)/2 = 12）量会差 3px，是假警。 */
+    line.checks.push(check(UI.codexHint().y <= pfBottom + EPS, '档案说明行基线在页面块内',
+      `${UI.codexHint().y} vs ${pfBottom}`));
+    line.checks.push(check(pfBars[0].y + pfBars[0].h <= pfLines[0].y + pfLines[0].h + EPS, '档案进度条在解锁线之内', ''));
+
+    /* 解锁线左右两列不叠字：左列是「名称 / 描述」，右列是「下一档门槛 / 档位标签」。
+     * 两侧各自最宽的那一行决定了需要的宽度 —— 名称 17 号、标签 12 号、
+     * 门槛文案 14 号，三条都要装得下且中间留 S(12) 的呼吸位。 */
+    const pfOver = [];
+    for (let i = 0; i < CFG.UNLOCKS.length; i++) {
+      const ln = CFG.UNLOCKS[i], r = pfLines[i];
+      const lastLbl = ln.tiers[ln.tiers.length - 1].label;
+      const leftW = Math.max(estW(ln.name, F(17)), estW(ln.desc, F(12)));
+      const rightW = Math.max(estW('下一档 9999 点', F(14)),
+        estW(ln.tiers[0].label + ' / ' + lastLbl, F(12)));
+      if (S(16) * 2 + leftW + S(12) + rightW > r.w) pfOver.push(ln.name);
+    }
+    line.checks.push(check(pfOver.length === 0, '档案解锁线左右两列不叠字', pfOver.join(', ')));
+
     // 头卡文字（名称 26 / 第二行 15 / 第三行 12）不越右边框
     const heroTx = heroR.x + S(172);
     const heroOver = [];
@@ -969,27 +1119,31 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
     // 9) 棋盘左右不出设计区
     line.checks.push(check(LAY.boardX >= 0 && LAY.boardX + LAY.boardW <= 720, '棋盘横向在界内', ''));
 
-    // 10) 安全区带来的尺寸损失不该超过 5%
+    // 10) 安全区带来的尺寸损失不该超过 12%
     //     参照组 = 同一块屏幕 + 同一档字号，把状态栏/胶囊/home 条全部置 0 再跑一遍。
+    //     历史口径是 ≤5%（仅状态栏 + home 条）。现主动把战斗 HUD 整体下移到胶囊下方
+    //     （让右上角胶囊那一行完整让给系统 UI），这会额外吃掉顶部空间，短屏机型
+    //     整体缩放再缩约 5~8%，故放宽到 ≤12%。真机短屏本就有黑边，影响有限。
     const bareE = env.wx ? wxEnv(env.w, env.h, env.screenH, 0, null, null) : env;
     const sBase = load(bareE, lv).Runtime.scale;
-    line.checks.push(check(s >= sBase * 0.95, '安全区吃掉不超过 5% 的缩放',
+    line.checks.push(check(s >= sBase * 0.88, '安全区吃掉不超过 12% 的缩放',
       `缩放 ${s.toFixed(4)} vs 无安全区基准 ${sBase.toFixed(4)}`));
 
     /* 11) 浏览器路径 · 中档坐标锁：中档是全工程的基准，必须逐像素稳定。
-     *      这几个数是「卡片改成两行」之后的当前值（建造栏 164 → 236，卡宽 72 → 129）；
-     *      改动布局时若无意动了别的东西，这里会立刻报出来。 */
+     *      这几个数取自「回声条与主动技下线 + 卡片只剩 6 塔」这一版：
+     *      HUD 右列顶格 680、开波按钮上移到 172、设置键挂在它右侧 176、
+     *      卡片两行 3+3（卡宽 221）；改动布局时若无意动了别的东西，这里会立刻报出来。 */
     if (!env.wx && lv === 1) {
       const LOCK = {
-        title: 36, sub: 74, hpLabel: 106, ecLabel: 164,
-        hpBarY: 122, ecBarY: 180, waveBtnY: 218, soundY: 18,
-        hudRight: 566, contentTop: 296, boardY: 354, barY: 1322, designH: 1558,
-        barH: 236, cardW: 164, cardH: 104   // cardW 129→164：凝霜下线后 8 张卡正好 4+4 两行
+        title: 36, sub: 74, hpLabel: 106,
+        hpBarY: 122, waveBtnY: 172, settingsY: 176,
+        hudRight: 680, contentTop: 268, boardY: 340, barY: 1322, designH: 1558,
+        barH: 236, cardW: 221, cardH: 104
       };
       const now = {
-        title: H.title, sub: H.sub, hpLabel: H.hpLabel, ecLabel: H.ecLabel,
-        hpBarY: LAY.hpBar.y, ecBarY: LAY.ecBar.y, waveBtnY: H.waveBtn.y,
-        soundY: LAY.soundBtn.y, hudRight: H.hudRight, contentTop: LAY.contentTop,
+        title: H.title, sub: H.sub, hpLabel: H.hpLabel,
+        hpBarY: LAY.hpBar.y, waveBtnY: H.waveBtn.y, settingsY: LAY.settingsBtn.y,
+        hudRight: H.hudRight, contentTop: LAY.contentTop,
         boardY: Math.round(LAY.boardY), barY: Math.round(LAY.barY),
         designH: Math.round(R.designH),
         barH: LAY.barH, cardW: LAY.cards[0].w, cardH: LAY.cards[0].h
