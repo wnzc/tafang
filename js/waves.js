@@ -115,6 +115,11 @@
     for (var k in UNLOCK) { if (UNLOCK[k] <= n) pool.push(k); }
     var mainType = pool[Math.floor(rnd() * pool.length)];
     var subType = pool[Math.floor(rnd() * pool.length)];
+    /* 主副怪不能同型：一波里交替出现轻怪与肉盾/快怪，玩家才能读到组合关系，
+     * 而不是清完一整批游荡体才突然换装甲体。 */
+    if (pool.length > 1) {
+      while (subType === mainType) subType = pool[Math.floor(rnd() * pool.length)];
+    }
 
     /* —— 爽游密度：怪量整体翻倍有余，间隔减半让同屏成团 —— */
     var base = Math.round((16 + Math.floor(n * 2.8)) * mut.spawnMul);
@@ -131,12 +136,12 @@
     var c1 = Math.ceil(base * 0.62 * heavyK);
     var c2 = base - c1;
     var i;
-    // 主/副批次间隔减半（0.72→0.34 / 0.58→0.30），怪成群涌来而非零散
-    for (i = 0; i < c1; i++) {
-      events.push({ type: mainType, time: 0.3 + i * 0.34, spawn: i % 2, hpMul: hpMul * mut.hpMul });
-    }
-    for (i = 0; i < c2; i++) {
-      events.push({ type: subType, time: 2.4 + i * 0.30, spawn: 0, hpMul: hpMul * mut.hpMul });
+    /* 主/副怪按对交错：每 0.34 秒一组，组内错开 0.17 秒。
+     * 保持旧版怪海的密度与总量，但让两种行为在同一屏上互动。 */
+    var pairs = Math.max(c1, c2);
+    for (i = 0; i < pairs; i++) {
+      if (i < c1) events.push({ type: mainType, time: 0.3 + i * 0.34, spawn: i % 2, hpMul: hpMul * mut.hpMul });
+      if (i < c2) events.push({ type: subType, time: 0.47 + i * 0.34, spawn: (i + 1) % 2, hpMul: hpMul * mut.hpMul });
     }
 
     // 破墙者小队：专门拆龟缩阵，但只在部分波次出现，避免跨波次累积
@@ -166,7 +171,6 @@
 
     events.sort(function (a, b) { return a.time - b.time; });
 
-    var title = isBoss ? '共鸣吞噬者' : NAMES[mainType];
     var mutName = muts.length ? muts[0].name + (muts[1] ? ' + ' + muts[1].name : '') : '';
     return {
       index: n,
@@ -175,7 +179,11 @@
       rewardMul: rewardMul * mut.rewardMul,
       isBoss: isBoss,
       total: events.length,
-      name: title,
+      /* HUD 横幅只承载状态，不塞怪名与突变名；详细突变仍由 Toast 给出。 */
+      name: isBoss ? '首领来袭' : '敌群来袭',
+      label: isBoss ? '首领来袭' : '敌群来袭',
+      primary: mainType,
+      secondary: subType,
       mut: mut,
       mutName: mutName,
       seed: seed || 1

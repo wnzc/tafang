@@ -785,7 +785,7 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
      *       必须与 render.js 的 drawOver 一致 —— 往结算页加数据行时这里会先报出来。
      *       注意「本局新解锁」是**改写副标题**、不是新增一行：副标题与首行数据之间
      *       只有 S(52)，塞第三行字在大字号档下必挤（S 与 F 两条曲线不同源）。 */
-    const ovPanelBottom = LAY.overTop + S(16) + S(516);
+    const ovPanelBottom = LAY.overTop + S(16) + S(602);
     const ovLastY = LAY.overTop + S(170) + 5 * S(44);
     const ovAgain = UI.againBtn();
     line.checks.push(check(ovLastY + F(24) / 2 <= ovPanelBottom + EPS, '结算数据行在面板内',
@@ -804,6 +804,14 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
     line.checks.push(check(estW(worstUnlock, F(16)) <= 588 - 2 * S(24) + EPS,
       '结算解锁文案最坏情况装得下面板',
       `宽 ${estW(worstUnlock, F(16)).toFixed(0)} vs 可容 ${(588 - 2 * S(24)).toFixed(0)}（${worstUnlock}）`));
+    /* 结算页必须同时给“再来一局”和“回到首页”：两个几何由 UI 提供，
+     * 不允许 render/main 各自再拍一份坐标。 */
+    const ovHome = typeof UI.againHome === 'function' ? UI.againHome() : null;
+    line.checks.push(check(!!ovHome, '结算页提供回到首页按钮', ''));
+    if (ovHome) {
+      line.checks.push(check(ovHome.y >= ovAgain.y + ovAgain.h + S(12), '结算首页按钮在再来一局之下', ''));
+      line.checks.push(check(ovHome.y + ovHome.h <= LAY.overTop + LAY.overH + EPS, '结算首页按钮在页面块内', ''));
+    }
 
     // 7d) 玩法正文：底边在块内，且每行不越过右边框。
     //     文案写在 ui.js 的 UI.HELP 里，渲染与自检共用同一份，
@@ -865,6 +873,15 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
       pv.x + S(24) + estW(UI.SET_PREVIEW, F(14)) + 12 <=
       pv.x + pv.w - S(24) - estW(UI.SET_PREVIEW_RIGHT + '大', F(13)),
       '预览条左右两段不叠字', ''));
+    /* 从战斗打开的设置页需要明确的“继续”和“返回首页”出口。 */
+    const setContinue = typeof UI.setContinue === 'function' ? UI.setContinue() : null;
+    const setHome = typeof UI.setHome === 'function' ? UI.setHome() : null;
+    line.checks.push(check(!!setContinue && !!setHome, '设置页提供继续与返回首页按钮', ''));
+    if (setContinue && setHome) {
+      line.checks.push(check(setContinue.x + setContinue.w + S(12) <= setHome.x, '设置页两个出口不重叠', ''));
+      line.checks.push(check(setContinue.y + setContinue.h <= LAY.setTop + LAY.setH + EPS &&
+        setHome.y + setHome.h <= LAY.setTop + LAY.setH + EPS, '设置页两个出口在页面块内', ''));
+    }
 
     // 7f) 菜单：介绍面板内的两行不压边，三个次级按钮（玩法/图鉴/设置）不叠
     const introTop = LAY.menuTop + S(176), introBot = introTop + S(116);
@@ -950,6 +967,20 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
       `需要 ${(widestName + S(16)).toFixed(0)} vs 格宽 ${cellsR[0].w}`));
     line.checks.push(check(widestSub + S(16) <= cellsR[0].w, '图鉴格宽容得下副标题',
       `需要 ${(widestSub + S(16)).toFixed(0)} vs 格宽 ${cellsR[0].w}`));
+    /* 名称与副标题必须使用同源的格内锚点，且在最大字号下仍有独立行高。 */
+    const cellText = typeof UI.codexCellText === 'function' ? UI.codexCellText(cellsR[0]) : null;
+    line.checks.push(check(!!cellText, '图鉴格提供文字锚点', ''));
+    if (cellText) {
+      line.checks.push(check(cellText.nameY + F(17) / 2 + S(6) <= cellText.subY - F(12) / 2,
+        '图鉴名称与副标题不遮盖', ''));
+      line.checks.push(check(cellText.subY + F(12) / 2 <= cellsR[0].y + cellsR[0].h - S(8),
+        '图鉴副标题不压格子底边', ''));
+    }
+
+    line.checks.push(check(G.Render && G.Render.TOWER_ICON_R >= 12,
+      '炮台中央元素图标放大到清晰尺寸', String(G.Render && G.Render.TOWER_ICON_R)));
+    line.checks.push(check(G.Render && G.Render.SHOW_TOWER_NETWORK === false,
+      '炮台之间不渲染共振或反应特效', String(G.Render && G.Render.SHOW_TOWER_NETWORK)));
 
     // 详情：四个块自上而下依次排开、不重叠、都在块内
     const heroR = UI.codexHero(), statR = UI.codexStatCells(),

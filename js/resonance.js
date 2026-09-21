@@ -140,7 +140,8 @@
         x: (pair[0].x + pair[1].x) / 2,
         y: (pair[0].y + pair[1].y) / 2,
         cd: old ? old.cd : def.cd * 0.3,
-        flash: 0
+        flash: 0,
+        lastTargetUid: old ? old.lastTargetUid : null
       });
     }
     RES.nodeIndex = {};
@@ -155,68 +156,83 @@
     var def = node.def;
     var list = game.enemies;
     var i, e, d;
+    /* 交界节点只负责“发现”反应；真正的受力与特效锚在最近的怪物。
+     * 这样玩家看到的是怪被蒸汽、冰晶或旋风击中，而不是炮台自己爆炸。 */
+    var target = null, nearest = Infinity;
+    for (i = 0; i < list.length; i++) {
+      e = list[i];
+      if (!e.alive) continue;
+      d = U.dist(e.x, e.y, node.x, node.y);
+      if (d <= def.radius + e.r && d < nearest) { target = e; nearest = d; }
+    }
     node.flash = 0.35;
-    G.FX.pop(node.x, node.y - 10, def.name, def.color, 15);
     if (G.Audio) G.Audio.reaction(def.kind);
+    if (!target) {
+      node.lastTargetUid = null;
+      return;
+    }
+    node.lastTargetUid = target.uid;
+    var ix = target.x, iy = target.y;
+    G.FX.pop(ix, iy - target.r - 20, def.name, def.color, 15);
 
     if (def.kind === 'burst') {
       // 蒸发 / 融化：白热冲击波 + 外扩蒸汽，全表最高的单发反应伤害
-      G.FX.shock(node.x, node.y, def.radius, def.color, 0.46, 4);
-      G.FX.shock(node.x, node.y, def.radius * 0.55, '#ffffff', 0.3, 3);
-      G.FX.ember(node.x, node.y, 8, def.color);
+      G.FX.shock(ix, iy, def.radius, def.color, 0.46, 4);
+      G.FX.shock(ix, iy, def.radius * 0.55, '#ffffff', 0.3, 3);
+      G.FX.ember(ix, iy, 8, def.color);
       for (i = 0; i < list.length; i++) {
         e = list[i];
         if (!e.alive) continue;
-        if (U.dist(e.x, e.y, node.x, node.y) > def.radius + e.r) continue;
+        if (U.dist(e.x, e.y, ix, iy) > def.radius + e.r) continue;
         reactHit(e, def.dmg, def);
         // 沿行进反方向推回去（分帧走完的位移，见 Enemies.push）
         G.Enemies.push(e, e.fx, e.fy, def.push);
         G.FX.spark(e.x, e.y, Math.atan2(e.fy, e.fx), 0.9, 3, def.color, 150, 0.26);
       }
-      G.FX.burst(node.x, node.y, 12, def.color, 140);
-      G.FX.shard(node.x, node.y, 5, '#ffe0a8', 120);
+      G.FX.burst(ix, iy, 12, def.color, 140);
+      G.FX.shard(ix, iy, 5, '#ffe0a8', 120);
 
     } else if (def.kind === 'super') {
       // 超导：冰晶沿六个方向炸开 + 冷雾，命中目标进入易伤
-      G.FX.ice(node.x, node.y, def.radius * 0.9, def.color);
-      G.FX.shock(node.x, node.y, def.radius, def.color, 0.42, 3);
+      G.FX.ice(ix, iy, def.radius * 0.9, def.color);
+      G.FX.shock(ix, iy, def.radius, def.color, 0.42, 3);
       for (i = 0; i < list.length; i++) {
         e = list[i];
         if (!e.alive) continue;
-        if (U.dist(e.x, e.y, node.x, node.y) > def.radius + e.r) continue;
+        if (U.dist(e.x, e.y, ix, iy) > def.radius + e.r) continue;
         reactHit(e, def.dmg, def);
         e.slowAmt = Math.max(e.slowAmt, 0.35);
         e.slowT = Math.max(e.slowT, 1.4);
         e.superT = Math.max(e.superT, def.dur);
         G.FX.ice(e.x, e.y, e.r + 12, def.color);
       }
-      G.FX.burst(node.x, node.y, 8, '#d8f6ff', 100);
+      G.FX.burst(ix, iy, 8, '#d8f6ff', 100);
 
     } else if (def.kind === 'overload') {
       // 超载：中心爆 + 分叉电弧跳向最近目标
-      G.FX.shock(node.x, node.y, def.radius * 0.7, def.color, 0.34, 3);
-      G.FX.flash(node.x, node.y, 46, def.color, 0.24);
+      G.FX.shock(ix, iy, def.radius * 0.7, def.color, 0.34, 3);
+      G.FX.flash(ix, iy, 46, def.color, 0.24);
       var hits = [];
       for (i = 0; i < list.length; i++) {
         e = list[i];
         if (!e.alive) continue;
-        d = U.dist(e.x, e.y, node.x, node.y);
+        d = U.dist(e.x, e.y, ix, iy);
         if (d > def.radius + e.r) continue;
         hits.push({ e: e, d: d });
       }
       hits.sort(function (p, q) { return p.d - q.d; });
       var n = Math.min(hits.length, def.jumps);
       for (i = 0; i < n; i++) {
-        G.FX.bolt(node.x, node.y, hits[i].e.x, hits[i].e.y, def.color, 0.26);
+        G.FX.bolt(ix, iy, hits[i].e.x, hits[i].e.y, def.color, 0.26);
         reactHit(hits[i].e, def.dmg, def);
         G.FX.spark(hits[i].e.x, hits[i].e.y, 0, Math.PI, 4, def.color, 140, 0.24);
       }
-      if (n === 0) G.FX.ring(node.x, node.y, def.radius * 0.6, def.color);
-      G.FX.spark(node.x, node.y, 0, Math.PI * 2, 6, '#ffd7f2', 190, 0.3);
+      if (n === 0) G.FX.ring(ix, iy, def.radius * 0.6, def.color);
+      G.FX.spark(ix, iy, 0, Math.PI * 2, 6, '#ffd7f2', 190, 0.3);
 
     } else if (def.kind === 'echain') {
       // 感电：连锁闪电在怪群之间连续跳跃（比超载跳得更远更多）
-      var cured = node.x, cyed = node.y;
+      var cured = ix, cyed = iy;
       var used = {};
       for (i = 0; i < def.jumps; i++) {
         var nx = null, nd = def.radius * def.radius;
@@ -233,16 +249,16 @@
         G.FX.spark(nx.x, nx.y, 0, Math.PI * 2, 3, def.color, 120, 0.22);
         cured = nx.x; cyed = nx.y;
       }
-      G.FX.flash(node.x, node.y, 30, def.color, 0.18);
+      G.FX.flash(ix, iy, 30, def.color, 0.18);
 
     } else if (def.kind === 'freeze') {
       // 冻结：范围内敌人定身，冻成冰雕
-      G.FX.ice(node.x, node.y, def.radius, def.color);
-      G.FX.shock(node.x, node.y, def.radius, def.color, 0.4, 3);
+      G.FX.ice(ix, iy, def.radius, def.color);
+      G.FX.shock(ix, iy, def.radius, def.color, 0.4, 3);
       for (i = 0; i < list.length; i++) {
         e = list[i];
         if (!e.alive) continue;
-        if (U.dist(e.x, e.y, node.x, node.y) > def.radius + e.r) continue;
+        if (U.dist(e.x, e.y, ix, iy) > def.radius + e.r) continue;
         reactHit(e, def.dmg, def);
         e.stunT = Math.max(e.stunT, def.dur);
         G.FX.ice(e.x, e.y, e.r + 14, '#d0f4ff');
@@ -250,12 +266,12 @@
 
     } else if (def.kind === 'swirl') {
       // 扩散：风把接触到的元素扯开，小伤害 + 大幅击退
-      G.FX.ring(node.x, node.y, 10, def.radius, def.color, 0.46, 3);
-      G.FX.burst(node.x, node.y, 10, def.color, 150);
+      G.FX.ring(ix, iy, 10, def.radius, def.color, 0.46, 3);
+      G.FX.burst(ix, iy, 10, def.color, 150);
       for (i = 0; i < list.length; i++) {
         e = list[i];
         if (!e.alive) continue;
-        if (U.dist(e.x, e.y, node.x, node.y) > def.radius + e.r) continue;
+        if (U.dist(e.x, e.y, ix, iy) > def.radius + e.r) continue;
         reactHit(e, def.dmg, def);
         /* 击退走速度场：分帧后退而不是瞬移。
          * 被免疫窗挡下（0.55s 内已被推过）时只出伤害不出位移 —— 这是有意的：
@@ -266,8 +282,8 @@
 
     } else if (def.kind === 'crystal') {
       // 结晶：邻塔获得岩晶护盾，护盾期间免疫啃咬伤害
-      G.FX.shard(node.x, node.y, 8, '#ffe0a8', 140);
-      G.FX.ring(node.x, node.y, 8, def.radius, '#fabb57', 0.5, 3);
+      G.FX.shard(ix, iy, 8, '#ffe0a8', 140);
+      G.FX.ring(ix, iy, 8, def.radius, '#fabb57', 0.5, 3);
       var tws = game.towers;
       for (i = 0; i < tws.length; i++) {
         var tw = tws[i];
@@ -278,13 +294,13 @@
 
     } else if (def.kind === 'bloom') {
       // 绽放：草原核炸开，范围二段伤害
-      G.FX.burst(node.x, node.y, 14, '#b8f04c', 150);
-      G.FX.shock(node.x, node.y, def.radius, def.color, 0.44, 4);
-      G.FX.shock(node.x, node.y, def.radius * 0.5, '#ffffff', 0.28, 3);
+      G.FX.burst(ix, iy, 14, '#b8f04c', 150);
+      G.FX.shock(ix, iy, def.radius, def.color, 0.44, 4);
+      G.FX.shock(ix, iy, def.radius * 0.5, '#ffffff', 0.28, 3);
       for (i = 0; i < list.length; i++) {
         e = list[i];
         if (!e.alive) continue;
-        if (U.dist(e.x, e.y, node.x, node.y) > def.radius + e.r) continue;
+        if (U.dist(e.x, e.y, ix, iy) > def.radius + e.r) continue;
         reactHit(e, def.dmg, def);
         e.burnT = Math.max(e.burnT || 0, 1.6);
         e.burnDps = Math.max(e.burnDps || 0, 10);
@@ -292,8 +308,8 @@
 
     } else if (def.kind === 'quicken') {
       // 激化：范围内己方塔伤害临时提升
-      G.FX.ring(node.x, node.y, 8, def.radius, def.color, 0.5, 3);
-      G.FX.burst(node.x, node.y, 8, def.color, 110);
+      G.FX.ring(ix, iy, 8, def.radius, def.color, 0.5, 3);
+      G.FX.burst(ix, iy, 8, def.color, 110);
       var tws2 = game.towers;
       for (i = 0; i < tws2.length; i++) {
         var tw2 = tws2[i];
@@ -303,18 +319,18 @@
       for (i = 0; i < list.length; i++) {
         e = list[i];
         if (!e.alive) continue;
-        if (U.dist(e.x, e.y, node.x, node.y) > def.radius * 0.6 + e.r) continue;
+        if (U.dist(e.x, e.y, ix, iy) > def.radius * 0.6 + e.r) continue;
         reactHit(e, def.dmg, def);
       }
 
     } else if (def.kind === 'burn') {
       // 燃烧：范围内敌人点燃，持续掉血
-      G.FX.ember(node.x, node.y, 10, def.color);
-      G.FX.ring(node.x, node.y, 8, def.radius, def.color, 0.44, 3);
+      G.FX.ember(ix, iy, 10, def.color);
+      G.FX.ring(ix, iy, 8, def.radius, def.color, 0.44, 3);
       for (i = 0; i < list.length; i++) {
         e = list[i];
         if (!e.alive) continue;
-        if (U.dist(e.x, e.y, node.x, node.y) > def.radius + e.r) continue;
+        if (U.dist(e.x, e.y, ix, iy) > def.radius + e.r) continue;
         e.burnT = Math.max(e.burnT || 0, def.dur);
         e.burnDps = Math.max(e.burnDps || 0, def.dps);
         // 燃烧本体没伤害（掉血在 enemies.js 每帧结算），但反应名照样要挂上去

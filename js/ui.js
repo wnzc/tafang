@@ -86,7 +86,10 @@
   UI.menuProfile = function () { return subBtn(2); };
   UI.menuSet = function () { return subBtn(3); };
   UI.againBtn = function () {
-    return { x: mid(256), y: G.LAY.overTop + S(424), w: 256, h: S(88) };
+    return { x: mid(256), y: G.LAY.overTop + S(424), w: 256, h: S(72) };
+  };
+  UI.againHome = function () {
+    return { x: mid(256), y: G.LAY.overTop + S(510), w: 256, h: S(72) };
   };
 
   /* ------------------------------------------------------------------ */
@@ -156,8 +159,15 @@
   UI.setPreview = function () {
     return { x: 46, y: G.LAY.setTop + S(540), w: 628, h: S(60) };
   };
+  UI.setContinue = function () {
+    return { x: 106, y: G.LAY.setTop + S(622), w: 242, h: S(72) };
+  };
+  UI.setHome = function () {
+    return { x: 372, y: G.LAY.setTop + S(622), w: 242, h: S(72) };
+  };
+  /* 兼容旧调用；新的渲染/输入只读语义清晰的 setContinue。 */
   UI.setBack = function () {
-    return { x: mid(256), y: G.LAY.setTop + S(622), w: 256, h: S(80) };
+    return UI.setContinue();
   };
 
   /* ------------------------------------------------------------------ */
@@ -277,6 +287,10 @@
       y: G.LAY.codexTop + S(UI.CODEX_BODY_Y) + Math.floor(i / n) * (h + gap),
       w: w, h: h, idx: i
     };
+  };
+  /** 列表格内的两条文字共用此锚点；大字号下仍保有完整行距。 */
+  UI.codexCellText = function (cell) {
+    return { nameY: cell.y + S(100), subY: cell.y + S(140) };
   };
   /** 列表网格的底边（自检用） */
   UI.codexGridBottom = function () {

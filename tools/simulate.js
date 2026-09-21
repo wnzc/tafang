@@ -207,6 +207,19 @@ try {
   if (victim.reactName !== '蒸发' || !victim.reactColor || victim.reactT <= 0) {
     report.errors.push('反应名没有挂到敌人身上: ' + JSON.stringify(res.react));
   }
+  /* 反应的施放源可以是两塔交界，但可见的作用点必须是锁定到的怪物；
+   * 否则冲击波和标签都像是炮台自己在爆炸，玩家读不出是谁被命中。 */
+  const vaporNode = G.Resonance.nodes[0];
+  res.react.targetUid = vaporNode && vaporNode.lastTargetUid;
+  if (!vaporNode || vaporNode.lastTargetUid !== victim.uid) {
+    report.errors.push('元素反应没有锁定命中的怪物: ' + JSON.stringify(res.react));
+  }
+
+  // 流风同时缩短索敌射程与命中风场，避免「远距离隔屏吹回去」。
+  res.wind = { range: G.CFG.TOWERS.anemo.range, aoe: G.CFG.TOWERS.anemo.aoe };
+  if (res.wind.range !== 69 || res.wind.aoe !== 48) {
+    report.errors.push('流风范围未缩小一半: ' + JSON.stringify(res.wind));
+  }
 
   // ⑥ 首领波提示
   G.Game.reset();
@@ -219,6 +232,51 @@ try {
   }
 
   report.combat = res;
+}
+
+/* ---------------------- 波次混编 / 短标题：独立验 ---------------------- */
+{
+  /* 固定种子下仍需满足：主副类型不同、在前段交错出现、横幅只用短名称。 */
+  const plan = G.Waves.plan(4, 24680, false);
+  const front = plan.events.filter(e => e.type !== 'swarmling' && e.type !== 'sunder').slice(0, 8);
+  const types = Array.from(new Set(front.map(e => e.type)));
+  report.waveMix = { primary: plan.primary, secondary: plan.secondary, label: plan.label, front: types };
+  if (!plan.primary || !plan.secondary || plan.primary === plan.secondary ||
+    types.length < 2 || (plan.label !== '敌群来袭' && plan.label !== '首领来袭')) {
+    report.errors.push('关卡未交错混编或横幅标题不够短: ' + JSON.stringify(report.waveMix));
+  }
+}
+
+/* ---------------------- 结算 / 设置出口：真实点击路径 ---------------------- */
+{
+  const g = G.Game;
+  G.Game.reset();
+  G.Game.startRun();
+  G.Game.openPage('set');
+  let b = G.UI.setContinue();
+  G.Game.onPageTap(b.x + b.w / 2, b.y + b.h / 2);
+  const resumed = g.state;
+
+  G.Game.openPage('set');
+  b = G.UI.setHome();
+  G.Game.onPageTap(b.x + b.w / 2, b.y + b.h / 2);
+  const setHome = g.state;
+
+  g.state = 'win';
+  b = G.UI.againHome();
+  G.Game.onTap(b.x + b.w / 2, b.y + b.h / 2);
+  const overHome = g.state;
+
+  g.state = 'win';
+  b = G.UI.againBtn();
+  G.Game.onTap(b.x + b.w / 2, b.y + b.h / 2);
+  const replay = g.state;
+  report.exits = { resumed: resumed, setHome: setHome, overHome: overHome, replay: replay };
+  if (resumed !== 'prep' || setHome !== 'menu' || overHome !== 'menu' || replay !== 'prep') {
+    report.errors.push('设置或结算出口没有走到正确状态: ' + JSON.stringify(report.exits));
+  }
+  G.Game.reset();
+  G.Game.startRun();
 }
 
 /* ---------------------- 削弱验证：减速 + 击退叠加仍净前进 ----------------------

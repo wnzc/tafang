@@ -361,8 +361,7 @@
     game.spawnIdx = 0;
     game.waveTime = 0;
     game.state = 'wave';
-    game.bannerMsg = '第 ' + game.wave + ' 波 · ' + game.waveData.name +
-      (game.waveData.mutName ? '｜' + game.waveData.mutName : '');
+    game.bannerMsg = '第 ' + game.wave + ' 波 · ' + game.waveData.label;
     game.bannerT = 2.2;
     /* Boss 波给一条「怎么打」的提示。
      * 会这么写是因为实测过：Boss 的护甲把低伤塔压到 1 点，玩家的第一反应
@@ -522,6 +521,9 @@
         A('ui');
         G.Game.reset();
         G.Game.startRun();
+      } else if (inRect(x, y, G.UI.againHome())) {
+        A('ui');
+        G.Game.reset();
       }
       return;
     }
@@ -585,7 +587,7 @@
   G.Game.closePage = function () {
     var back = game.prevState || 'menu';
     // 只有从这几个状态进来才回得去，其余的（比如中途被打断）一律回菜单
-    if (back !== 'menu' && back !== 'over' && back !== 'win') back = 'menu';
+    if (back !== 'menu' && back !== 'over' && back !== 'win' && back !== 'prep' && back !== 'wave') back = 'menu';
     game.state = back;
     game.toastT = 0;
   };
@@ -603,8 +605,9 @@
       return;
     }
 
-    // —— 返回 ——
-    if (inRect(x, y, G.UI.setBack())) { A('ui'); G.Game.closePage(); return; }
+    // —— 继续 / 返回首页 ——
+    if (inRect(x, y, G.UI.setContinue())) { A('ui'); G.Game.closePage(); return; }
+    if (inRect(x, y, G.UI.setHome())) { A('ui'); G.Game.reset(); return; }
 
     // —— 字体档位：小 / 中 / 大 ——
     var fb = G.UI.setFontBtns();

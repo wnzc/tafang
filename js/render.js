@@ -7,6 +7,10 @@
   var CFG = G.CFG, U = G.Util, R = G.Runtime;
 
   var Render = G.Render = {};
+  /* 图标比旧版 7px 明显增大，但仍保留炮管与冷却环的轮廓。 */
+  Render.TOWER_ICON_R = 12;
+  /* 元素反应只在被命中的怪物处呈现，炮台之间不绘制网络或节点特效。 */
+  Render.SHOW_TOWER_NETWORK = false;
 
   /* 字号统一入口：调用点写基础字号，这里查当前档位的字号表。
    * 全工程只有这两个函数 + fx.js 的飘字会设置 ctx.font，
@@ -131,11 +135,11 @@
     ctx.save();
     ctx.translate(sx, sy);
     drawBoard(ctx, game, LAY);
-    // 塔先画，再画链：相邻塔只隔 64px，链画在下层会被塔身整段盖住，
-    // 而「哪里成链了」是玩家最需要一眼看懂的信息，必须浮在塔之上
     drawTowers(ctx, game, LAY);
-    drawLinks(ctx, game);
-    drawNodes(ctx, game);
+    if (Render.SHOW_TOWER_NETWORK) {
+      drawLinks(ctx, game);
+      drawNodes(ctx, game);
+    }
     drawEnemies(ctx, game);
     drawBullets(ctx, game);
     G.FX.draw(ctx);
@@ -266,7 +270,7 @@
     var w = (c1[0] - c0[0] + 1) * CELL;
     var hh = CELL;
     var pulse2 = 0.5 + 0.5 * Math.sin(t * 2.4);
-    U.roundRect(ctx, x0 + 6, y0 + 6, w - 12, hh - 12, 14);
+    U.roundRect(ctx, x0 + 5, y0 + 7, w - 10, hh - 14, 14);
     var cg = ctx.createLinearGradient(x0, y0, x0 + w, y0 + hh);
     cg.addColorStop(0, 'rgba(69,214,255,0.30)');
     cg.addColorStop(1, 'rgba(80,110,255,0.18)');
@@ -280,14 +284,24 @@
     ctx.strokeStyle = 'rgba(180,240,255,' + (0.55 + pulse2 * 0.45) + ')';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(mx, my, 20 + pulse2 * 5, 0, Math.PI * 2);
+    ctx.arc(mx, my, 22 + pulse2 * 5, 0, Math.PI * 2);
     ctx.stroke();
-    U.poly(ctx, mx, my, 16, 4, 0);
+    /* 双格反应堆：中心菱形是能量芯，两侧短栅提示两个核心通道。 */
+    U.poly(ctx, mx, my, 18, 4, Math.PI / 4);
     ctx.fillStyle = 'rgba(150,235,255,' + (0.55 + pulse2 * 0.35) + ')';
     ctx.fill();
+    ctx.strokeStyle = 'rgba(225,252,255,0.9)';
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+    for (var coreBar = -1; coreBar <= 1; coreBar += 2) {
+      ctx.beginPath();
+      ctx.moveTo(mx + coreBar * 31, my - 14);
+      ctx.lineTo(mx + coreBar * 31, my + 14);
+      ctx.stroke();
+    }
     /* 字比核心图标大一档，挂在核心上方 48：既离开图标本体（半径 25），
      * 又给底部那一行留出余地 —— 浮动提示压在棋盘底时不会盖到这两个字。 */
-    txt(ctx, '核心', mx, my - S(48), 13, 'rgba(180,240,255,0.8)', 'center');
+    txt(ctx, 'ECHO CORE', mx, my - S(48), 13, 'rgba(180,240,255,0.8)', 'center', 'bold');
 
     // 脉冲瞄准提示已随脉冲一起移除
   }
@@ -573,13 +587,13 @@
     //    底下垫一圈元素色暗盘，图标才在深色底盘上站得住。
     var pul = 0.5 + 0.5 * Math.sin(t0 * 4 + seed);
     ctx.beginPath();
-    ctx.arc(x, y, S(9.5) + pul * 0.7, 0, Math.PI * 2);
+    ctx.arc(x, y, Render.TOWER_ICON_R + 3 + pul * 0.7, 0, Math.PI * 2);
     ctx.fillStyle = sup ? 'rgba(120,133,158,0.9)' : U.hexToRgba(col, 0.22);
     ctx.fill();
     ctx.strokeStyle = U.hexToRgba(sup ? '#adb8cf' : col, 0.5);
     ctx.lineWidth = 1.2;
     ctx.stroke();
-    elemIcon(ctx, t.elem, x, y, S(7), sup ? '#a0abc0' : soft);
+    elemIcon(ctx, t.elem, x, y, Render.TOWER_ICON_R, sup ? '#a0abc0' : soft);
 
     // 7) 等级刻度
     var maxLv = CFG.MAX_LEVEL, pw = 5, pg = 2.5;
@@ -1215,7 +1229,8 @@
     txt(ctx, G.UI.SET_PREVIEW_RIGHT + CFG.FONT_LEVELS[CFG.FONT_LEVEL].name,
       pv.x + pv.w - S(24), pv.y + pv.h / 2, 13, '#8fe6ff', 'right', 'bold');
 
-    ghostBtn(ctx, G.UI.setBack(), '返回', 20, '#8fe6ff');
+    ghostBtn(ctx, G.UI.setContinue(), '继续', 20, '#8fe6ff');
+    ghostBtn(ctx, G.UI.setHome(), '回到首页', 18, '#ffd27a');
   }
 
   function smallRoundBtn(ctx, r, label) {
@@ -1270,7 +1285,7 @@
     pageBg(ctx, LAY);
 
     var oy = LAY.overTop;
-    panel(ctx, 66, oy + S(16), 588, S(516));
+    panel(ctx, 66, oy + S(16), 588, S(602));
     var col = win ? '#2ee6a8' : '#ff5d6c';
     str(ctx, win ? '防线守住了' : '核心被击穿', 360, oy + S(74), 34, col, 'center', 'bold', 6);
     /* 副标题位：有「本局新解锁」时改报解锁（那是成长系统里最该被看见的一刻，
@@ -1312,7 +1327,8 @@
     ctx.strokeStyle = 'rgba(140,230,255,0.7)';
     ctx.lineWidth = 2.5;
     ctx.stroke();
-    str(ctx, '再来一局', b.x + b.w / 2, b.y + b.h / 2, 24, '#e9f2ff', 'center', 'bold', 5);
+    str(ctx, '再来一局', b.x + b.w / 2, b.y + b.h / 2, 22, '#e9f2ff', 'center', 'bold', 5);
+    ghostBtn(ctx, G.UI.againHome(), '回到首页', 20, '#8fe6ff');
   }
 
   /* ------------------------ 图鉴 / 首次遭遇 ------------------------ */
@@ -1524,7 +1540,7 @@
   function drawCodexEnemyCell(ctx, rc, key, t) {
     var seen = G.Codex.isSeen(key);
     var d = CFG.ENEMIES[key];
-    var cx = rc.x + rc.w / 2, icy = rc.y + S(64);
+    var cx = rc.x + rc.w / 2, icy = rc.y + S(48);
     var col = seen ? d.color : '#93a7c6';
 
     glowPanel(ctx, rc, S(18), seen ? 'rgba(42,60,94,0.9)' : 'rgba(24,36,58,0.8)',
@@ -1532,17 +1548,18 @@
       seen ? U.hexToRgba(d.color, 0.5) : 'rgba(150,190,255,0.16)', seen ? 2 : 1.5);
 
     if (seen && G.Monsters) {
-      G.Monsters.draw(ctx, codexMonster(key, cx, icy + S(10), S(30)), t, 1);
+      G.Monsters.draw(ctx, codexMonster(key, cx, icy + S(10), S(24)), t, 1);
     } else {
       // 未遭遇：一个大问号当「剪影」，不是把真身涂黑（涂黑会被认成已解锁）
       // 字号 46 是字号表里最大的一档 —— 表外的值（如 40）会走 FONT_K 兜底被放大 1.5 倍，
       // 看起来「反而更大」，font-check 的「用到的字号都在表里」就是防这个。
       txt(ctx, '?', cx, icy + S(4), 46, 'rgba(139,160,198,0.30)', 'center', 'bold');
     }
-    txt(ctx, seen ? d.name : '? ? ?', cx, rc.y + S(150), 17,
+    var textPos = G.UI.codexCellText(rc);
+    txt(ctx, seen ? d.name : '? ? ?', cx, textPos.nameY, 17,
       seen ? CFG.C.text : '#9db0cf', 'center', 'bold');
     txt(ctx, seen ? G.Codex.enemy(key).role : '未遭遇',
-      cx, rc.y + S(172), 12, seen ? col : '#93a7c6', 'center');
+      cx, textPos.subY, 12, seen ? col : '#93a7c6', 'center');
   }
 
   /* —— 图鉴：炮台格子 —— */
@@ -1552,11 +1569,12 @@
     var cx = rc.x + rc.w / 2;
     glowPanel(ctx, rc, S(18), 'rgba(42,60,94,0.9)', U.hexToRgba(info.color, 0.20),
       U.hexToRgba(info.color, 0.5), 2);
-    elemIcon(ctx, info.elem, cx, rc.y + S(80), S(28), info.soft);
-    txt(ctx, info.name, cx, rc.y + S(150), 17, CFG.C.text, 'center', 'bold');
+    elemIcon(ctx, info.elem, cx, rc.y + S(60), S(22), info.soft);
+    var textPos = G.UI.codexCellText(rc);
+    txt(ctx, info.name, cx, textPos.nameY, 17, CFG.C.text, 'center', 'bold');
     /* 副标题只写「造价 · 攻击方式」：格宽 204 在放大的字号档下容得下
      * 「60 能量 · 连锁闪电」这种长串（layout-check 的「格宽容得下副标题」量着） */
-    txt(ctx, info.cost + ' · ' + info.kind, cx, rc.y + S(172), 12, CFG.C.dim, 'center');
+    txt(ctx, info.cost + ' · ' + info.kind, cx, textPos.subY, 12, CFG.C.dim, 'center');
   }
 
   /* —— 图鉴：怪物详情 —— */
