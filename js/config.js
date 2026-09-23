@@ -71,10 +71,9 @@
     },
     anemo: {
       key: 'anemo', name: '流风', elem: 'anemo', cost: 80, hp: 240,
-      /* 流风原来的索敌距离与风场都太大：隔着半张棋盘就能持续把怪推回去。
-       * 两段范围同步减半，保留近身控场的身份但不再覆盖整条路线。 */
-      dmg: 7, range: 69, rate: 0.80,
-      kind: 'gust', aoe: 48, push: 18
+      /* 流风改为低伤聚怪：范围翻倍，但不再击退；把怪群卷进反应中心。 */
+      dmg: 4, range: 138, rate: 0.80,
+      kind: 'gust', aoe: 96, pull: 36
     },
     /* ——— 凝霜（冰）：成长系统「回响档案」解锁后重新上架 ———
      * 曾因与水塔同为 kind:'wave'（范围减速波）、定位重叠而下线留档；
@@ -125,6 +124,17 @@
     chainDmg: 0.16,
     chainRate: 0.08,
     chainCap: 7,
+    /* 共振过载：只有真正命中敌人的反应才会累计。首版将反应明确归属给
+     * 火 / 雷 / 风三条爆发路线；以后补其它元素只需追加同结构的数据和效果函数。 */
+    overload: {
+      threshold: 100,
+      charge: 20,
+      cooldown: 7.0,
+      flash: 0.62,
+      pyro: { name: '燎原', dmg: 28, radius: 108, jumps: 2, burnT: 2.4, burnDps: 13 },
+      electro: { name: '天网', dmg: 22, maxBolts: 7 },
+      anemo: { name: '风眼', dmg: 20, radius: 118, pull: 42 }
+    },
     // 异元素相邻触发反应（key 按字母序拼接）：
     //   蒸发(火+水) 融化(火+冰) 超载(火+雷) 感电(水+雷) 超导(冰+雷)
     //   冻结(水+冰) 扩散(风+X)  结晶(岩+X)  绽放(草+水) 激化(草+雷) 燃烧(草+火)
@@ -135,7 +145,7 @@
     reactions: {
       'hydro|pyro': {        // 蒸发：白热汽爆，伤害翻倍感
         name: '蒸发', cd: 2.4, radius: 76, dmg: 46, push: 20,
-        color: '#ffd08a', kind: 'burst'
+        color: '#ffd08a', kind: 'burst', overloadElem: 'pyro'
       },
       'cryo|pyro': {         // 融化：全表最高单发伤害
         name: '融化', cd: 2.6, radius: 68, dmg: 58, push: 14,
@@ -143,11 +153,11 @@
       },
       'pyro|electro': {      // 超载：爆炸 + 电弧跳射
         name: '超载', cd: 2.8, radius: 118, dmg: 26, jumps: 4,
-        color: '#ff7bd0', kind: 'overload'
+        color: '#ff7bd0', kind: 'overload', overloadElem: 'electro'
       },
       'electro|hydro': {     // 感电：连锁闪电在怪群之间跳跃
         name: '感电', cd: 2.4, radius: 128, dmg: 16, jumps: 5,
-        color: '#b7a3ff', kind: 'echain'
+        color: '#b7a3ff', kind: 'echain', overloadElem: 'electro'
       },
       'cryo|electro': {      // 超导：减防易伤 + 冰霜范围
         name: '超导', cd: 2.4, radius: 92, dmg: 9, dur: 2.6, extra: 0.25,
@@ -157,20 +167,13 @@
         name: '冻结', cd: 3.0, radius: 84, dmg: 8, dur: 1.2,
         color: '#a8ecff', kind: 'freeze'
       },
-      /* —— 扩散：风把对方的元素扯出去，小伤害 + 击退 ——
-       * push 的单位是「总共后退多少像素」，由 enemies.js 的击退速度场分帧走完
-       * （不是瞬间位移，见 E.push 的注释）。
-       * cd 从 2.0 拉到 3.2：风 + 减速同时压在怪身上时，2 秒一次击退会把怪
-       * 顶在同一个位置上反复横跳（退一点、被减速慢慢挪回来、再退），
-       * 看起来就是一卡一卡。周期拉长后节奏变成「推一段 → 慢慢走回来」。
-       * push 46 → 34 同理：退得太远，减速期间根本走不回来，
-       * 等于把怪永久钉在原地，反而看不出风在起作用。 */
-      'anemo|pyro':  { name: '扩散', cd: 3.2, radius: 104, dmg: 14, push: 22, color: '#8af2e0', kind: 'swirl' },
-      'anemo|hydro': { name: '扩散', cd: 3.2, radius: 104, dmg: 14, push: 22, color: '#8af2e0', kind: 'swirl' },
-      'anemo|cryo':  { name: '扩散', cd: 3.2, radius: 104, dmg: 14, push: 22, color: '#8af2e0', kind: 'swirl' },
-      'anemo|electro': { name: '扩散', cd: 3.2, radius: 104, dmg: 14, push: 22, color: '#8af2e0', kind: 'swirl' },
-      'anemo|dendro': { name: '扩散', cd: 3.2, radius: 104, dmg: 14, push: 22, color: '#8af2e0', kind: 'swirl' },
-      'anemo|geo':   { name: '湍流', cd: 3.4, radius: 96, dmg: 12, push: 26, color: '#a8ecd8', kind: 'swirl' },
+      /* —— 扩散：风把怪群卷向反应中心，小伤害 + 聚怪，不再击退。 */
+      'anemo|pyro':  { name: '扩散', cd: 3.2, radius: 104, dmg: 10, pull: 32, color: '#8af2e0', kind: 'swirl', overloadElem: 'anemo' },
+      'anemo|hydro': { name: '扩散', cd: 3.2, radius: 104, dmg: 10, pull: 32, color: '#8af2e0', kind: 'swirl', overloadElem: 'anemo' },
+      'anemo|cryo':  { name: '扩散', cd: 3.2, radius: 104, dmg: 10, pull: 32, color: '#8af2e0', kind: 'swirl', overloadElem: 'anemo' },
+      'anemo|electro': { name: '扩散', cd: 3.2, radius: 104, dmg: 10, pull: 32, color: '#8af2e0', kind: 'swirl', overloadElem: 'anemo' },
+      'anemo|dendro': { name: '扩散', cd: 3.2, radius: 104, dmg: 10, pull: 32, color: '#8af2e0', kind: 'swirl', overloadElem: 'anemo' },
+      'anemo|geo':   { name: '湍流', cd: 3.4, radius: 96, dmg: 9, pull: 36, color: '#a8ecd8', kind: 'swirl', overloadElem: 'anemo' },
       // —— 结晶：给邻塔上护盾，短时间内免疫啃咬 ——
       'geo|hydro':   { name: '结晶', cd: 4.0, radius: 110, dur: 5.0, color: '#ffe0a8', kind: 'crystal' },
       'geo|pyro':    { name: '结晶', cd: 4.0, radius: 110, dur: 5.0, color: '#ffe0a8', kind: 'crystal' },
@@ -428,6 +431,20 @@
     bad: '#ff5d6c'
   };
 
+  /* 棋盘统一是深海地脉遗迹：每种突变只换同一世界观里的矿脉/潮痕/裂隙配色，
+   * 不会突然跳成另一张风格不相干的地图。decor 决定每格的低对比纹理语言。 */
+  CFG.BOARD_THEMES = {
+    base:      { key: 'base',  cellA: '#20324f', cellB: '#25395a', edge: '#466285', accent: '#72d8ff', soft: '#b8edff', enemy: '#8feeff', decor: 'rune' },
+    swift:     { key: 'swift', cellA: '#19394a', cellB: '#1d4655', edge: '#3a8c8b', accent: '#54e0c5', soft: '#b7fff0', enemy: '#8fffe2', decor: 'wind' },
+    regrowth:  { key: 'echo',  cellA: '#28334f', cellB: '#33405e', edge: '#7460b2', accent: '#b79cff', soft: '#e1d5ff', enemy: '#d4c4ff', decor: 'pulse' },
+    eclipse:   { key: 'eclipse', cellA: '#262d4a', cellB: '#303354', edge: '#65559a', accent: '#9f85e8', soft: '#dacdff', enemy: '#c8b5ff', decor: 'shadow' },
+    frenzy:    { key: 'frenzy', cellA: '#3b2942', cellB: '#4a3047', edge: '#9a4e70', accent: '#ff7194', soft: '#ffd0db', enemy: '#ffb0bf', decor: 'fracture' },
+    ironhide:  { key: 'iron',  cellA: '#353747', cellB: '#424454', edge: '#887c67', accent: '#d6b36d', soft: '#ffecba', enemy: '#f6d994', decor: 'strata' },
+    bloodfury: { key: 'blood', cellA: '#472939', cellB: '#563042', edge: '#a94e60', accent: '#ff6e7f', soft: '#ffd0d6', enemy: '#ffb1ba', decor: 'fracture' },
+    swarm:     { key: 'swarm', cellA: '#1d3b50', cellB: '#254963', edge: '#3e87a9', accent: '#63d9ff', soft: '#c4f5ff', enemy: '#9eeaff', decor: 'tide' },
+    titanfall: { key: 'titan', cellA: '#3b3548', cellB: '#494153', edge: '#9b7c67', accent: '#f2ad74', soft: '#ffe0bf', enemy: '#ffd19f', decor: 'strata' }
+  };
+
   /* ---------------- 字号（三档：小 / 中 / 大） ----------------
    * 所有文字绘制统一走 CFG.FS（render.js 的 fontOf、fx.js 的飘字）。
    * 调用点写的永远是「基础字号」，档位一换，全工程一起变，不会东一处西一处漏掉。
@@ -537,9 +554,14 @@
       sub: gameTop + S(74),            // 21px：顶 64 → 底 85
       hpLabel: gameTop + S(106),       // 22px：顶 95 → 底 117
       hpBar: { x: 40, y: gameTop + S(122), w: 388, h: S(22) },
+      /* 文字与填充条分行：满格也不可能遮住「共振临界」。 */
+      overloadLabel: gameTop + S(154),
+      overloadValue: gameTop + S(154),
+      overloadBar: { x: 40, y: gameTop + S(169), w: 388, h: S(8) },
       /* 回声条随「回声倒带」一起下线（现行玩法只剩炮台），开波按钮直接顶上来
        * 占住这一行：左列少一行 S(58)，棋盘就多让出一截纵向空间。 */
-      waveBtn: { x: 40, y: gameTop + S(172), w: 500, h: S(64) },   // 底 gameTop+236
+      waveBtn: { x: 40, y: gameTop + S(184), w: 404, h: S(60) },
+      speedBtn: { x: 458, y: gameTop + S(187), w: 108, h: S(50) },
       // —— 右对齐一列：右沿 = hudRight（顶格）——
       waveTxt: rightColTop + S(36),
       bestTxt: rightColTop + S(74),
@@ -550,7 +572,7 @@
        * 横向与开波按钮分离（540 ← 40 间隙 → 580），纵向与它基本齐平。
        * 宽恒 100（里面只有一个图标 + 两个汉字，横向不必跟字号走），
        * 左沿 580 + 宽 100 = 680 = 内容区右沿，正好顶格。 */
-      settingsBtn: { x: 580, y: gameTop + S(176), w: 100, h: S(54) }
+      settingsBtn: { x: 580, y: gameTop + S(187), w: 100, h: S(50) }
     };
 
     /* 建造栏高度不再是常数：它由「卡片几行 × 多高」决定（见下面的卡片段）。
@@ -563,12 +585,13 @@
     var perRow = Math.ceil(nCard / 2);
     var nRow = Math.ceil(nCard / perRow);
     var barH = cardPadTop * 2 + cardH * nRow + rowGap * (nRow - 1);
-    var barY = designH - insetBottom - barH;
+    var barBottomGap = S(20);
+    var barY = designH - insetBottom - barBottomGap - barH;
 
     // 棋盘起始 y：HUD 最后一行（开波按钮）下沿 + 呼吸位
     var contentTop = Math.max(CFG.TOP_Y, hud.waveBtn.y + hud.waveBtn.h + S(14));
     // 「打游戏」这条线最少要这么高
-    var gameNeed = contentTop + CFG.BOARD_H + barH + insetBottom;
+    var gameNeed = contentTop + CFG.BOARD_H + barH + insetBottom + barBottomGap;
     /* 棋盘在「HUD 之下、建造栏之上」这段里的位置：
      * 先给棋盘**下方**留出浮动提示（Toast）落脚的位置，剩下的才上下均分。
      * 不留的话，屏幕高度紧张时棋盘会被均分到紧贴建造栏，
@@ -598,7 +621,7 @@
     /* 菜单 / 设置 / 玩法 / 结算这类整屏版式：整块按内容高度垂直居中，
      * 而不是钉死在 1280 基准上 —— 否则字号一变就会掉出屏幕底。
      * 块高必须跟 render.js 里该版式实际排到的最底部对齐，改版式时一起改。 */
-    var MENU_H = S(650), SET_H = S(730), HELP_H = S(1150), OVER_H = S(620);
+    var MENU_H = S(720), SET_H = S(730), HELP_H = S(1150), OVER_H = S(620);
     /* 图鉴页（codex）与「首次遭遇」弹窗（pop）也是整屏块。
      * 两者的块高刻意压在 HELP_H（1150）以内 —— neededH 取这几个块的最大值，
      * 谁超过 HELP_H 谁就会把短屏机型的整体缩放一起拉小，
@@ -659,7 +682,9 @@
       cards: cards,
       /* 兼容旧字段名：渲染层与命中区都直接引用这几个对象 */
       waveBtn: hud.waveBtn,
+      speedBtn: hud.speedBtn,
       hpBar: hud.hpBar,
+      overloadBar: hud.overloadBar,
       settingsBtn: hud.settingsBtn,
       hudRight: hud.hudRight
     };

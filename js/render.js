@@ -9,8 +9,92 @@
   var Render = G.Render = {};
   /* 图标比旧版 7px 明显增大，但仍保留炮管与冷却环的轮廓。 */
   Render.TOWER_ICON_R = 12;
+  Render.TOWER_SCALE = 1.125;
+  Render.MONSTER_SCALE = 1.10;
+  Render.PAGE_BG_BLUR = 12;
+  /* 棋盘不是实心面板：让首页/地脉背景透进来，只留下可建造地表的轻薄提示。 */
+  Render.BOARD_SURFACE_ALPHA = 0.38;
+  Render.BOARD_CELL_ALPHA = 0.20;
+  Render.BOARD_GRID_COLOR = '#07111f';
+  Render.CORE_IMAGE_PATH = 'assets/core/echo-core-runtime-v1.png';
   /* 元素反应只在被命中的怪物处呈现，炮台之间不绘制网络或节点特效。 */
-  Render.SHOW_TOWER_NETWORK = false;
+  Render.SHOW_TOWER_NETWORK = true;
+  Render.BACKGROUND_PATHS = {
+    tide: 'assets/backgrounds/leyline-tide-runtime-v1.jpg',
+    echo: 'assets/backgrounds/leyline-echo-runtime-v1.jpg',
+    ember: 'assets/backgrounds/leyline-ember-runtime-v1.jpg',
+    home: 'assets/backgrounds/home-leyline-runtime-v1.jpg'
+  };
+  var backgroundImages = {};
+  var coreImage = { img: null, ready: false, tried: false };
+
+  /** 本波第一条地脉突变决定棋盘主题；双突变不做杂色拼盘，保持一波一景。 */
+  Render.boardTheme = function (game) {
+    var list = game && game.waveData && game.waveData.mut && game.waveData.mut.list;
+    var key = list && list.length && list[0] && list[0].key;
+    return CFG.BOARD_THEMES[key] || CFG.BOARD_THEMES.base;
+  };
+
+  /** 背景与棋盘主题同源：冷色潮汐 / 紫晶回响 / 暖色裂隙三张图覆盖全部突变。 */
+  Render.backgroundKey = function (game) {
+    var list = game && game.waveData && game.waveData.mut && game.waveData.mut.list;
+    var key = list && list.length && list[0] && list[0].key;
+    if (key === 'regrowth' || key === 'eclipse') return 'echo';
+    if (key === 'frenzy' || key === 'ironhide' || key === 'bloodfury' || key === 'titanfall') return 'ember';
+    return 'tide';
+  };
+
+  function ensureBackground(key) {
+    var rec = backgroundImages[key];
+    if (rec) return rec;
+    rec = backgroundImages[key] = { img: null, ready: false, failed: false };
+    var img = null;
+    try {
+      if (typeof wx !== 'undefined' && typeof wx.createImage === 'function') img = wx.createImage();
+      else if (typeof Image === 'function') img = new Image();
+      if (!img) return rec;
+      rec.img = img;
+      img.onload = function () { rec.ready = true; };
+      img.onerror = function () { rec.failed = true; };
+      var src = Render.BACKGROUND_PATHS[key];
+      /* 小游戏入口在项目根目录；tools/shot.html 则在 tools/ 下，预览时要退一级。 */
+      if (typeof wx === 'undefined' && typeof location !== 'undefined' && /\/tools\//.test(location.pathname)) {
+        src = '../' + src;
+      }
+      img.src = src;
+    } catch (e) { rec.failed = true; }
+    return rec;
+  }
+
+  function ensureCoreImage() {
+    if (coreImage.tried) return coreImage;
+    coreImage.tried = true;
+    try {
+      var img = null;
+      if (typeof wx !== 'undefined' && typeof wx.createImage === 'function') img = wx.createImage();
+      else if (typeof Image === 'function') img = new Image();
+      if (!img) return coreImage;
+      coreImage.img = img;
+      img.onload = function () { coreImage.ready = true; };
+      var src = Render.CORE_IMAGE_PATH;
+      if (typeof wx === 'undefined' && typeof location !== 'undefined' && /\/tools\//.test(location.pathname)) src = '../' + src;
+      img.src = src;
+    } catch (e) { /* Canvas fallback remains active. */ }
+    return coreImage;
+  }
+
+  function drawBackgroundImage(ctx, game, LAY) {
+    var rec = ensureBackground(Render.backgroundKey(game));
+    if (!rec.ready || !rec.img || !ctx.drawImage) return;
+    ctx.save();
+    ctx.globalAlpha = 0.82;
+    ctx.drawImage(rec.img, 0, 0, 720, LAY.designH);
+    // 统一压一层深海滤镜，保证白字、血条与棋盘永远先于背景被读到。
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(8,18,37,0.22)';
+    ctx.fillRect(0, 0, 720, LAY.designH);
+    ctx.restore();
+  }
 
   /* 字号统一入口：调用点写基础字号，这里查当前档位的字号表。
    * 全工程只有这两个函数 + fx.js 的飘字会设置 ctx.font，
@@ -92,10 +176,11 @@
   /** 某只怪的血条矩形（x 以怪为原点算，y 是槽顶边） */
   Render.barRect = function (e) {
     var boss = !!(e.def && e.def.boss);
-    var w = boss ? Math.max(BAR.bossW, e.r * BAR.wRatio) : Math.max(BAR.wMin, e.r * BAR.wRatio);
+    var vr = e.r * Render.MONSTER_SCALE;
+    var w = boss ? Math.max(BAR.bossW, vr * BAR.wRatio) : Math.max(BAR.wMin, vr * BAR.wRatio);
     var h = boss ? BAR.bossH : BAR.h;
     var gap = boss ? BAR.bossGap : BAR.gap;
-    return { x: e.x - w / 2, y: e.y - e.r - gap, w: w, h: h, boss: boss };
+    return { x: e.x - w / 2, y: e.y - vr - gap, w: w, h: h, boss: boss };
   };
 
   /* 「刚被什么反应打中」的标签：贴在血条上方的一条小胶囊。
@@ -120,6 +205,7 @@
     g.addColorStop(1, CFG.C.bg0);
     ctx.fillStyle = g;
     ctx.fillRect(-400, -500, 1520, LAY.designH + 1000);
+    drawBackgroundImage(ctx, game, LAY);
 
     var gx = 360, gy = LAY.designH * 0.34, gr = LAY.designH * 0.78;
     var glow = ctx.createRadialGradient(gx, gy, 40, gx, gy, gr);
@@ -136,10 +222,7 @@
     ctx.translate(sx, sy);
     drawBoard(ctx, game, LAY);
     drawTowers(ctx, game, LAY);
-    if (Render.SHOW_TOWER_NETWORK) {
-      drawLinks(ctx, game);
-      drawNodes(ctx, game);
-    }
+    if (Render.SHOW_TOWER_NETWORK) drawLinks(ctx, game);
     drawEnemies(ctx, game);
     drawBullets(ctx, game);
     G.FX.draw(ctx);
@@ -158,6 +241,7 @@
       if (game.sel) drawTowerPanel(ctx, game);
       drawBanner(ctx, game, LAY);
       drawToast(ctx, game, LAY);
+      if (game.tutorial && game.tutorial.active) drawTutorial(ctx, game, LAY);
     }
 
     // 受击：边缘红色晕染（比整屏平铺更有压迫感，也不糊画面）
@@ -178,6 +262,13 @@
       ctx.fillRect(0, 0, 720, LAY.designH);
     }
 
+    if (game.overload && game.overload.flash > 0 && CFG.ELEM[game.overload.elem]) {
+      var ol = CFG.ELEM[game.overload.elem].color;
+      var oa = U.clamp(game.overload.flash / CFG.RES.overload.flash, 0, 1) * 0.16;
+      ctx.fillStyle = U.hexToRgba(ol, oa);
+      ctx.fillRect(0, 0, 720, LAY.designH);
+    }
+
     if (game.state === 'menu') drawMenu(ctx, game, LAY);
     if (game.state === 'set') drawSet(ctx, game, LAY);
     if (game.state === 'help') drawHelp(ctx, game, LAY);
@@ -194,8 +285,9 @@
     // 音效快捷开关：游戏与菜单都能点；设置/玩法/图鉴/弹窗不画 ——
     // 大字号下它会和这些页面自己的按钮挤在同一块地方
     // （玩法页的返回药丸已经被 boot 自检抓到过一次），设置页里另有音效开关。
-    if (game.state !== 'set' && game.state !== 'help' &&
+    if (game.state !== 'menu' && game.state !== 'set' && game.state !== 'help' &&
       game.state !== 'codex' && game.state !== 'pop') drawSettingsBtn(ctx, game, LAY);
+    if (game.state === 'prep' || game.state === 'wave') drawSpeedBtn(ctx, game, LAY);
   };
 
   /* ------------------------- 设置按钮 ------------------------- */
@@ -229,16 +321,34 @@
     txt(ctx, '设置', sb.x + 64, cy, 13, '#cfe3ff', 'center', 'bold');
   }
 
+  function drawSpeedBtn(ctx, game, LAY) {
+    var r = LAY.speedBtn, fast = game.speed === 2;
+    U.roundRect(ctx, r.x, r.y, r.w, r.h, S(14));
+    ctx.fillStyle = fast ? 'rgba(255,210,122,0.18)' : 'rgba(120,150,200,0.13)';
+    ctx.fill();
+    ctx.strokeStyle = fast ? '#ffd27a' : 'rgba(150,190,255,0.40)';
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+    txt(ctx, '×' + game.speed, r.x + r.w / 2, r.y + r.h / 2, 17,
+      fast ? '#ffe1a0' : '#cfe3ff', 'center', 'bold');
+  }
+
   /* ---------------------------- 棋盘 ---------------------------- */
   function drawBoard(ctx, game, LAY) {
     var CELL = CFG.CELL, COLS = CFG.COLS, ROWS = CFG.ROWS;
     var bx = LAY.boardX, by = LAY.boardY;
     var t = game.time;
+    var theme = Render.boardTheme(game);
 
     U.roundRect(ctx, bx - 9, by - 9, LAY.boardW + 18, LAY.boardH + 18, 20);
-    ctx.fillStyle = CFG.C.board;
+    var boardGlow = ctx.createRadialGradient(bx + LAY.boardW / 2, by + LAY.boardH * 0.42, 28,
+      bx + LAY.boardW / 2, by + LAY.boardH * 0.42, LAY.boardW * 0.72);
+    boardGlow.addColorStop(0, U.hexToRgba(theme.accent, 0.15));
+    boardGlow.addColorStop(0.48, U.hexToRgba(theme.cellA, Render.BOARD_SURFACE_ALPHA));
+    boardGlow.addColorStop(1, U.hexToRgba(theme.cellA, Render.BOARD_SURFACE_ALPHA * 0.56));
+    ctx.fillStyle = boardGlow;
     ctx.fill();
-    ctx.strokeStyle = 'rgba(150,190,255,0.18)';
+    ctx.strokeStyle = U.hexToRgba(theme.edge, 0.56);
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
@@ -246,10 +356,16 @@
       for (var c = 0; c < COLS; c++) {
         var x = bx + c * CELL, y = by + r * CELL;
         U.roundRect(ctx, x + 2, y + 2, CELL - 4, CELL - 4, 8);
-        ctx.fillStyle = ((r + c) % 2 === 0) ? CFG.C.cellA : CFG.C.cellB;
+        ctx.fillStyle = U.hexToRgba(((r + c) % 2 === 0) ? theme.cellA : theme.cellB, Render.BOARD_CELL_ALPHA);
         ctx.fill();
+        ctx.strokeStyle = U.hexToRgba(Render.BOARD_GRID_COLOR, 0.58);
+        ctx.lineWidth = 1.25;
+        ctx.stroke();
+        drawTerrainMark(ctx, x, y, c, r, game.seed || 1, theme);
       }
     }
+    drawTerrainVeins(ctx, bx, by, LAY.boardW, LAY.boardH, theme);
+    if (game.tutorial && game.tutorial.active) drawTutorialFlow(ctx, game, LAY);
 
     // 出怪口
     for (var s = 0; s < CFG.SPAWN_COLS.length; s++) {
@@ -257,9 +373,12 @@
       var cx = bx + (sc + 0.5) * CELL;
       var pulse = 0.5 + 0.5 * Math.sin(t * 3 + s * 2);
       ctx.globalAlpha = 0.35 + pulse * 0.4;
-      U.poly(ctx, cx, by + 26, 14, 3, Math.PI / 2);
-      ctx.fillStyle = '#ff5d6c';
+      U.poly(ctx, cx, by + 26, 16, 4, Math.PI / 4 + t * 0.35);
+      ctx.fillStyle = theme.accent;
       ctx.fill();
+      ctx.strokeStyle = theme.soft;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
       ctx.globalAlpha = 1;
     }
 
@@ -286,24 +405,186 @@
     ctx.beginPath();
     ctx.arc(mx, my, 22 + pulse2 * 5, 0, Math.PI * 2);
     ctx.stroke();
-    /* 双格反应堆：中心菱形是能量芯，两侧短栅提示两个核心通道。 */
-    U.poly(ctx, mx, my, 18, 4, Math.PI / 4);
-    ctx.fillStyle = 'rgba(150,235,255,' + (0.55 + pulse2 * 0.35) + ')';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(225,252,255,0.9)';
-    ctx.lineWidth = 1.8;
-    ctx.stroke();
-    for (var coreBar = -1; coreBar <= 1; coreBar += 2) {
-      ctx.beginPath();
-      ctx.moveTo(mx + coreBar * 31, my - 14);
-      ctx.lineTo(mx + coreBar * 31, my + 14);
+    var coreArt = ensureCoreImage();
+    if (coreArt.ready && coreArt.img && ctx.drawImage) {
+      ctx.drawImage(coreArt.img, mx - 49, my - 58, 98, 116);
+    } else {
+      U.poly(ctx, mx, my, 18, 4, Math.PI / 4);
+      ctx.fillStyle = 'rgba(150,235,255,' + (0.55 + pulse2 * 0.35) + ')';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(225,252,255,0.9)';
+      ctx.lineWidth = 1.8;
       ctx.stroke();
     }
+    ctx.globalCompositeOperation = 'lighter';
+    for (var coreP = 0; coreP < 6; coreP++) {
+      var coreA = t * 1.8 + coreP * Math.PI * 2 / 6;
+      var coreX = mx + Math.cos(coreA) * 48, coreY = my + Math.sin(coreA) * 25;
+      ctx.fillStyle = coreP % 2 ? '#b7a3ff' : '#8feeff';
+      ctx.beginPath(); ctx.arc(coreX, coreY, 2.8 + pulse2 * 1.4, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalCompositeOperation = 'source-over';
     /* 字比核心图标大一档，挂在核心上方 48：既离开图标本体（半径 25），
      * 又给底部那一行留出余地 —— 浮动提示压在棋盘底时不会盖到这两个字。 */
     txt(ctx, 'ECHO CORE', mx, my - S(48), 13, 'rgba(180,240,255,0.8)', 'center', 'bold');
 
     // 脉冲瞄准提示已随脉冲一起移除
+  }
+
+  /* 每格最多一笔低对比纹理：地图有地貌，但塔、怪与路线仍是第一阅读层。 */
+  function drawTerrainMark(ctx, x, y, c, r, seed, theme) {
+    var h = (((seed >>> 0) ^ Math.imul(c + 17, 73856093) ^ Math.imul(r + 31, 19349663)) >>> 0) / 4294967296;
+    if (h < 0.44) return;
+    var cx = x + CFG.CELL * (0.32 + (h % 0.36));
+    var cy = y + CFG.CELL * (0.30 + ((h * 7) % 0.38));
+    ctx.save();
+    ctx.globalAlpha = 0.16 + (h - 0.44) * 0.16;
+    ctx.strokeStyle = theme.accent;
+    ctx.fillStyle = theme.accent;
+    ctx.lineWidth = 1.25;
+    if (theme.decor === 'wind') {
+      ctx.beginPath(); ctx.arc(cx, cy, 11 + h * 8, h * 5, h * 5 + Math.PI * 1.15); ctx.stroke();
+      ctx.beginPath(); ctx.arc(cx + 5, cy - 4, 5 + h * 4, h * 5 + 1, h * 5 + 2.7); ctx.stroke();
+    } else if (theme.decor === 'pulse' || theme.decor === 'rune') {
+      U.poly(ctx, cx, cy, 7 + h * 5, 4, Math.PI / 4); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx - 14, cy); ctx.lineTo(cx - 5, cy); ctx.moveTo(cx + 5, cy); ctx.lineTo(cx + 14, cy); ctx.stroke();
+    } else if (theme.decor === 'shadow') {
+      ctx.globalAlpha *= 0.7;
+      U.poly(ctx, cx, cy, 12 + h * 7, 4, 0); ctx.fill();
+    } else if (theme.decor === 'fracture') {
+      ctx.beginPath(); ctx.moveTo(cx - 17, cy - 11); ctx.lineTo(cx - 4, cy - 3); ctx.lineTo(cx + 2, cy + 8); ctx.lineTo(cx + 18, cy + 15); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(cx - 4, cy - 3); ctx.lineTo(cx + 8, cy - 10); ctx.stroke();
+    } else if (theme.decor === 'strata') {
+      ctx.beginPath(); ctx.moveTo(cx - 18, cy - 8); ctx.lineTo(cx + 15, cy - 14); ctx.moveTo(cx - 14, cy + 5); ctx.lineTo(cx + 19, cy - 1); ctx.stroke();
+    } else if (theme.decor === 'tide') {
+      ctx.beginPath(); ctx.moveTo(cx - 18, cy); ctx.quadraticCurveTo(cx - 8, cy - 10, cx + 1, cy); ctx.quadraticCurveTo(cx + 10, cy + 10, cx + 19, cy); ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  /* 跨格“地脉骨架”是地图的识别物：不同主题仍用同样克制的遗迹线条语法，
+   * 不会变成与游戏美术割裂的贴图背景。它在格子之后、单位之前绘制。 */
+  function drawTerrainVeins(ctx, bx, by, w, h, theme) {
+    ctx.save();
+    ctx.globalAlpha = 0.14;
+    ctx.strokeStyle = theme.accent;
+    ctx.lineWidth = 2.1;
+    ctx.lineCap = 'round';
+    if (theme.decor === 'wind' || theme.decor === 'tide') {
+      for (var row = 0; row < 3; row++) {
+        var yy = by + h * (0.18 + row * 0.29);
+        ctx.beginPath();
+        ctx.moveTo(bx + 12, yy);
+        ctx.bezierCurveTo(bx + w * 0.25, yy - 34, bx + w * 0.52, yy + 34, bx + w * 0.74, yy - 8);
+        ctx.bezierCurveTo(bx + w * 0.88, yy - 28, bx + w - 12, yy + 12, bx + w - 12, yy + 8);
+        ctx.stroke();
+      }
+    } else if (theme.decor === 'fracture') {
+      ctx.beginPath();
+      ctx.moveTo(bx + w * 0.13, by + 12); ctx.lineTo(bx + w * 0.34, by + h * 0.28);
+      ctx.lineTo(bx + w * 0.47, by + h * 0.52); ctx.lineTo(bx + w * 0.73, by + h * 0.71);
+      ctx.lineTo(bx + w * 0.88, by + h - 14); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(bx + w * 0.47, by + h * 0.52); ctx.lineTo(bx + w * 0.67, by + h * 0.43); ctx.stroke();
+    } else if (theme.decor === 'strata') {
+      for (var sy = 0; sy < 4; sy++) {
+        var yy2 = by + h * (0.17 + sy * 0.22);
+        ctx.beginPath(); ctx.moveTo(bx + 14, yy2 + 12); ctx.lineTo(bx + w * 0.44, yy2 - 8);
+        ctx.lineTo(bx + w * 0.73, yy2 + 5); ctx.lineTo(bx + w - 14, yy2 - 9); ctx.stroke();
+      }
+    } else {
+      for (var si = 0; si < 4; si++) {
+        var sx = bx + w * (0.17 + (si % 2) * 0.62), sy2 = by + h * (0.18 + Math.floor(si / 2) * 0.58);
+        U.poly(ctx, sx, sy2, 16, 4, Math.PI / 4); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(sx - 30, sy2); ctx.lineTo(sx - 17, sy2); ctx.moveTo(sx + 17, sy2); ctx.lineTo(sx + 30, sy2); ctx.stroke();
+      }
+    }
+    ctx.restore();
+  }
+
+  /** 教程流线直接读当前 BFS 场，因此第一座塔落下后会真实地绕开它。 */
+  function drawTutorialFlow(ctx, game, LAY) {
+    var flow = G.Grid && G.Grid.flow;
+    if (!flow) return;
+    var dirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+    ctx.save();
+    ctx.globalAlpha = 0.66;
+    ctx.strokeStyle = '#8feeff';
+    ctx.lineWidth = 4;
+    ctx.lineCap = 'round';
+    if (typeof ctx.setLineDash === 'function') ctx.setLineDash([8, 9]);
+    if (typeof ctx.lineDashOffset !== 'undefined') ctx.lineDashOffset = -(game.time * 26) % 17;
+    for (var si = 0; si < CFG.SPAWN_COLS.length; si++) {
+      var c = CFG.SPAWN_COLS[si], r = 0, guard = 0;
+      ctx.beginPath();
+      ctx.moveTo(LAY.boardX + (c + 0.5) * CFG.CELL, LAY.boardY + (r + 0.5) * CFG.CELL);
+      while (guard++ < CFG.COLS * CFG.ROWS) {
+        var cur = G.Grid.at(flow, c, r), bc = c, br = r, best = cur;
+        for (var di = 0; di < dirs.length; di++) {
+          var nc = c + dirs[di][0], nr = r + dirs[di][1];
+          if (!G.Grid.inBounds(nc, nr)) continue;
+          var v = G.Grid.at(flow, nc, nr);
+          if (v >= 0 && v < best) { best = v; bc = nc; br = nr; }
+        }
+        if (bc === c && br === r) break;
+        c = bc; r = br;
+        ctx.lineTo(LAY.boardX + (c + 0.5) * CFG.CELL, LAY.boardY + (r + 0.5) * CFG.CELL);
+        if (G.Grid.isCore(c, r)) break;
+      }
+      ctx.stroke();
+    }
+    if (typeof ctx.setLineDash === 'function') ctx.setLineDash([]);
+    if (typeof ctx.lineDashOffset !== 'undefined') ctx.lineDashOffset = 0;
+    ctx.restore();
+  }
+
+  function drawTutorial(ctx, game, LAY) {
+    var step = game.tutorial.step;
+    var info = G.UI.TUTORIAL_STEPS[step];
+    var p = G.UI.tutorialPanel();
+    // 暗角只压低战场，不盖死地图；教程目标仍在下面的亮框里。
+    ctx.fillStyle = 'rgba(4,10,22,0.34)';
+    ctx.fillRect(0, 0, 720, LAY.designH);
+
+    var target = G.UI.tutorialTarget(step);
+    if (target) {
+      var tx = LAY.boardX + target.col * CFG.CELL, ty = LAY.boardY + target.row * CFG.CELL;
+      var pulse = 0.5 + 0.5 * Math.sin(game.time * 5);
+      U.roundRect(ctx, tx + 3, ty + 3, CFG.CELL - 6, CFG.CELL - 6, 10);
+      ctx.fillStyle = U.hexToRgba(CFG.ELEM[target.tower].color, 0.20 + pulse * 0.12);
+      ctx.fill();
+      ctx.strokeStyle = CFG.ELEM[target.tower].soft;
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      U.poly(ctx, tx + CFG.CELL / 2, ty - 12 - pulse * 5, 8, 3, Math.PI);
+      ctx.fillStyle = CFG.ELEM[target.tower].soft;
+      ctx.fill();
+    }
+
+    U.roundRect(ctx, p.x, p.y, p.w, p.h, S(20));
+    ctx.fillStyle = 'rgba(19,34,58,0.97)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(143,238,255,0.52)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    txt(ctx, '新手引导  ' + (step + 1) + ' / 4', p.x + S(24), p.y + S(28), 12, '#8feeff', 'left', 'bold');
+    txt(ctx, info.title, p.x + S(24), p.y + S(66), 20, CFG.C.text, 'left', 'bold');
+    txt(ctx, info.lines[0], p.x + S(24), p.y + S(98), 13, CFG.C.dim);
+    txt(ctx, info.lines[1], p.x + S(24), p.y + S(122), 13, CFG.C.dim);
+
+    var skip = G.UI.tutorialSkip();
+    U.roundRect(ctx, skip.x, skip.y, skip.w, skip.h, S(12));
+    ctx.fillStyle = 'rgba(255,255,255,0.07)'; ctx.fill();
+    txt(ctx, '跳过', skip.x + skip.w / 2, skip.y + skip.h / 2, 12, CFG.C.dim, 'center', 'bold');
+    if (info.next) {
+      var next = G.UI.tutorialNext();
+      U.roundRect(ctx, next.x, next.y, next.w, next.h, S(14));
+      ctx.fillStyle = 'rgba(82,224,197,0.16)'; ctx.fill();
+      ctx.strokeStyle = '#54e0c5'; ctx.lineWidth = 1.8; ctx.stroke();
+      txt(ctx, info.next, next.x + next.w / 2, next.y + next.h / 2, 14, '#b7fff0', 'center', 'bold');
+    } else {
+      txt(ctx, '点亮棋盘上的标记', p.x + p.w - S(24), p.y + p.h - S(38), 13,
+        CFG.ELEM[target.tower].soft, 'right', 'bold');
+    }
   }
 
   /* --------------------------- 共振网络 --------------------------- */
@@ -447,6 +728,10 @@
     var x = t.x, y = t.y;
     var col = sup ? '#8494b3' : el.color;
     var soft = sup ? '#adb8cf' : el.soft;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(Render.TOWER_SCALE, Render.TOWER_SCALE);
+    ctx.translate(-x, -y);
 
     // 1) 地面余光（只露出一圈边，形成元素色描边感）
     ctx.globalAlpha = sup ? 0.08 : 0.16;
@@ -647,6 +932,7 @@
       ctx.fill();
       ctx.globalAlpha = 1;
     }
+    ctx.restore();
   }
 
   /* ---------------------------- 敌人 ---------------------------- */
@@ -676,7 +962,7 @@
     ctx.globalCompositeOperation = 'lighter';
     for (var q2 = 0; q2 < arr.length; q2++) {
       var e2 = arr[q2];
-      var gr = e2.r + (e2.def && e2.def.boss ? 16 : 7);
+      var gr = e2.r * Render.MONSTER_SCALE + (e2.def && e2.def.boss ? 16 : 7);
       ctx.globalAlpha = (e2.hitFlash > 0 ? 0.30 : 0.15) * (e2.phaseT > 0 ? 0.35 : 1);
       ctx.fillStyle = e2.hitFlash > 0 ? '#ffffff' : e2.color;
       ctx.beginPath();
@@ -689,7 +975,7 @@
     for (var i = 0; i < arr.length; i++) {
       var e = arr[i];
       var col = e.color;
-      var r = e.r;
+      var r = e.r * Render.MONSTER_SCALE;
       var sc = e.spawnT > 0 ? U.lerp(0.2, 1, 1 - e.spawnT / 0.35) : 1;
       if (e.hitFlash > 0) col = '#ffffff';
 
@@ -698,12 +984,17 @@
       /* 怪物形象：矢量手绘、逐部件动画，全部在 js/monsters.js 里
        * （朝向镜像、出生缩放、受击白闪、相位重影都在那一层处理）。
        * 万一某个 key 没有形象，退回一个圆点兜底，保证逻辑自检也不崩。 */
+      ctx.save();
+      ctx.translate(e.x, e.y);
+      ctx.scale(Render.MONSTER_SCALE, Render.MONSTER_SCALE);
+      ctx.translate(-e.x, -e.y);
       if (!G.Monsters || !G.Monsters.draw(ctx, e, game.time, sc)) {
         ctx.beginPath();
-        ctx.arc(e.x, e.y, r * sc, 0, Math.PI * 2);
+        ctx.arc(e.x, e.y, e.r * sc, 0, Math.PI * 2);
         ctx.fillStyle = col;
         ctx.fill();
       }
+      ctx.restore();
 
       if (e.def && e.def.boss) {
         ctx.strokeStyle = U.hexToRgba('#ff4d6d', 0.5);
@@ -815,7 +1106,7 @@
     if (!items.length) return;
 
     var fs = 12, padX = S(8), gap = S(5), bh = S(22);
-    var by = e.y + e.r + S(11);
+    var by = e.y + e.r * Render.MONSTER_SCALE + S(11);
     ctx.font = fontOf(fs, 'bold');
     var widths = [], total = 0;
     for (var i = 0; i < items.length; i++) {
@@ -875,8 +1166,10 @@
       ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 6, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = U.hexToRgba(col, 0.46);
       ctx.beginPath(); ctx.arc(p.x, p.y, p.r + 2.4, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#fff6e2';
-      ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+      if (!elemIcon(ctx, p.elem, p.x, p.y, Math.max(3.2, p.r + 1.6), '#fff6e2')) {
+        ctx.fillStyle = '#fff6e2';
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2); ctx.fill();
+      }
     }
     ctx.globalCompositeOperation = 'source-over';
   }
@@ -913,6 +1206,21 @@
      * 缩小后不碍事。**必须是字号表里有的值** —— 22 / 26 这类不在表里的数会走
      * FONT_K 兜底（22 → 实际 60px），比原来还大，font-check 会直接报出来。 */
     txt(ctx, String(Math.floor(game.energy)), hr, H.energyVal, 20, '#ffd27a', 'right', 'bold');
+
+    /* 自动临界条：只显示离下一次爆发的距离，不引入主动技能按钮。 */
+    var ov = game.overload || { value: 0, cooldown: 0, elem: '' };
+    var ovCfg = CFG.RES.overload;
+    var ovElem = CFG.ELEM[ov.elem];
+    var ovCol = ovElem ? ovElem.color : '#7b8cae';
+    var ovValue = ov.cooldown > 0
+      ? '冷却 ' + Math.ceil(ov.cooldown) + 's'
+      : Math.floor(ov.value) + ' / ' + ovCfg.threshold;
+    txt(ctx, '共振临界', 40, H.overloadLabel, 12, CFG.C.dim, 'left', 'bold');
+    txt(ctx, ovValue, H.overloadBar.x + H.overloadBar.w, H.overloadValue, 12,
+      ov.cooldown > 0 ? ovCol : CFG.C.dim, 'right', 'bold');
+    bar(ctx, H.overloadBar.x, H.overloadBar.y, H.overloadBar.w, H.overloadBar.h,
+      ov.cooldown > 0 ? 1 : ov.value / ovCfg.threshold,
+      ovCol, ovElem ? ovElem.soft : '#a9bad8', CFG.C.barTrack);
 
     // 开波按钮
     if (game.state === 'prep') {
@@ -1087,8 +1395,32 @@
 
   /** 整屏版式的底色。必须近乎不透明：底下还画着棋盘与塔（尤其从结算页进来时） */
   function pageBg(ctx, LAY) {
-    ctx.fillStyle = CFG.C.page;
-    ctx.fillRect(0, 0, 720, LAY.designH);
+    var rec = ensureBackground('home');
+    if (rec.ready && rec.img && ctx.drawImage) {
+      ctx.save();
+      var hasFilter = typeof ctx.filter === 'string';
+      if (hasFilter) {
+        ctx.filter = 'blur(' + Render.PAGE_BG_BLUR + 'px)';
+        ctx.drawImage(rec.img, -Render.PAGE_BG_BLUR, -Render.PAGE_BG_BLUR,
+          720 + Render.PAGE_BG_BLUR * 2, LAY.designH + Render.PAGE_BG_BLUR * 2);
+        ctx.filter = 'none';
+      } else {
+        /* 基础库若没有 filter，就以四张微偏移的低透明副本做柔化兜底。 */
+        ctx.globalAlpha = 0.24;
+        var d = Render.PAGE_BG_BLUR * 0.45;
+        ctx.drawImage(rec.img, -d, 0, 720 + d, LAY.designH);
+        ctx.drawImage(rec.img, d, 0, 720 + d, LAY.designH);
+        ctx.drawImage(rec.img, 0, -d, 720, LAY.designH + d);
+        ctx.drawImage(rec.img, 0, d, 720, LAY.designH + d);
+      }
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = 'rgba(6,14,30,0.66)';
+      ctx.fillRect(0, 0, 720, LAY.designH);
+      ctx.restore();
+    } else {
+      ctx.fillStyle = CFG.C.page;
+      ctx.fillRect(0, 0, 720, LAY.designH);
+    }
   }
 
   function panel(ctx, x, y, w, h, fill) {
@@ -1140,18 +1472,12 @@
   }
 
   function drawMenu(ctx, game, LAY) {
-    pageBg(ctx, LAY);
+    drawMenuBackground(ctx, LAY);
     // 整块由 config.buildLayout 按内容高度垂直居中算好，不再钉死在 1280 基准
     var oy = LAY.menuTop;
 
     str(ctx, '回声防线', 360, oy + S(58), 46, '#e9f2ff', 'center', 'bold', 6);
     txt(ctx, 'E C H O   L I N E', 360, oy + S(118), 14, '#5fc8ff', 'center', 'bold');
-
-    /* 游戏介绍只留两句：这是什么游戏、目标是什么。
-     * 具体怎么打全在「玩法」里 —— 菜单不再是说明书的复印件。 */
-    panel(ctx, 46, oy + S(176), 628, S(116));
-    txt(ctx, G.UI.MENU_INTRO[0], 76, oy + S(214), 16, CFG.C.text, 'left', 'bold');
-    txt(ctx, G.UI.MENU_INTRO[1], 76, oy + S(258), 13, CFG.C.dim);
 
     mainBtn(ctx, G.UI.menuStart(), '开始防守', 26, game.time);
     // 次级按钮统一遍历 UI.menuSubBtns()：漏画一个的 bug 从结构上就不可能再发生
@@ -1160,8 +1486,23 @@
       ghostBtn(ctx, subs[si].rect, subs[si].label, 18, subs[si].color);
     }
 
-    txt(ctx, '最高分 ' + game.best, 360, oy + S(574), 14, CFG.C.dim, 'center');
-    txt(ctx, '微信小游戏 · Canvas 2D 运行，无外部资源', 360, oy + S(612), 12, '#7d90b3', 'center');
+    txt(ctx, '最高分 ' + game.best, 360, G.UI.menuFooterY() - S(32), 14, CFG.C.dim, 'center');
+    txt(ctx, '三境地脉 · 塔防即造迷宫', 360, G.UI.menuFooterY(), 12, '#7d90b3', 'center');
+  }
+
+  function drawMenuBackground(ctx, LAY) {
+    var rec = ensureBackground('home');
+    if (rec.ready && rec.img && ctx.drawImage) {
+      ctx.drawImage(rec.img, 0, 0, 720, LAY.designH);
+      var shade = ctx.createLinearGradient(0, 0, 0, LAY.designH);
+      shade.addColorStop(0, 'rgba(5,13,29,0.24)');
+      shade.addColorStop(0.46, 'rgba(5,13,29,0.46)');
+      shade.addColorStop(1, 'rgba(5,13,29,0.76)');
+      ctx.fillStyle = shade;
+      ctx.fillRect(0, 0, 720, LAY.designH);
+    } else {
+      pageBg(ctx, LAY);
+    }
   }
 
   /* ----------------------------- 设置页 ----------------------------- */

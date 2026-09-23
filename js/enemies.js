@@ -23,11 +23,15 @@
     var armorAdd = (mut && mut.armorAdd) || 0;
     var dmgMul = (mut && mut.dmgMul) || 1;
     var regen = (mut && mut.regen) || 0;
+    var themeKey = mut && mut.list && mut.list[0] && mut.list[0].key;
+    var theme = CFG.BOARD_THEMES && (CFG.BOARD_THEMES[themeKey] || CFG.BOARD_THEMES.base);
     var e = {
       uid: uidSeq++,
       key: key,
       def: d,
-      color: d.color,
+      /* 地图用低饱和暗色，怪物取同主题的亮前景色，绝不与地面融在一起。 */
+      color: (theme && theme.enemy) || d.color,
+      themeKey: (theme && theme.key) || 'base',
       r: d.r,
       col: spawnCol,
       row: -1,
@@ -47,6 +51,8 @@
       hitFlash: 0,
       /* 击退（风/爆发类反应）的速度场，见 E.push */
       kbvx: 0, kbvy: 0, kbT: 0, kbImmune: 0,
+      /* 风眼牵引：和击退分开，避免两个相反的外力同帧叠成抖动。 */
+      pullVx: 0, pullVy: 0, pullT: 0,
       /* 最近一次打在它身上的元素反应名（画成它身上的一枚小标签） */
       reactT: 0, reactName: '', reactColor: '',
       fx: 0, fy: 1,
@@ -66,14 +72,15 @@
   };
 
 E.snapshot = function (e) {
-  return {
+    return {
     uid: e.uid, key: e.key, x: e.x, y: e.y,
     hp: e.hp, maxHp: e.maxHp, reward: e.reward,
     slowT: e.slowT, slowAmt: e.slowAmt, superT: e.superT,
     stunT: e.stunT, burnT: e.burnT || 0, burnDps: e.burnDps || 0,
     phaseT: e.phaseT, phaseCd: e.phaseCd,
     kbvx: e.kbvx || 0, kbvy: e.kbvy || 0, kbT: e.kbT || 0, kbImmune: e.kbImmune || 0,
-    alive: e.alive, off: e.off, mode: e.mode
+    pullVx: e.pullVx || 0, pullVy: e.pullVy || 0, pullT: e.pullT || 0,
+    alive: e.alive, off: e.off, mode: e.mode, themeKey: e.themeKey
   };
 };
 
@@ -87,6 +94,10 @@ E.restore = function (e, s) {
    * 而快照里它的位置还是旧的 —— 两者对不上就是凭空位移。 */
   e.kbvx = s.kbvx || 0; e.kbvy = s.kbvy || 0;
   e.kbT = s.kbT || 0; e.kbImmune = s.kbImmune || 0;
+  e.pullVx = s.pullVx || 0; e.pullVy = s.pullVy || 0; e.pullT = s.pullT || 0;
+  if (s.themeKey && CFG.BOARD_THEMES && CFG.BOARD_THEMES[s.themeKey]) {
+    e.themeKey = s.themeKey; e.color = CFG.BOARD_THEMES[s.themeKey].enemy || e.color;
+  }
   e.alive = true; e.off = s.off; e.mode = s.mode;
   e.hitFlash = 0;
   return e;
@@ -144,6 +155,22 @@ E.push = function (e, dirX, dirY, dist) {
   e.kbvy = -(dirY / d) * v0;
   e.kbT = KB_TAU * 3.5;      // 到 3.5τ 速度只剩 3%，可以收手
   e.kbImmune = KB_IMMUNE;
+  return true;
+};
+
+/* 风眼牵引也用连续速度场，但与击退互斥：被风眼吸住的敌人不会同时被
+ * 普通风反应推回去。候选落点若进入塔格则整帧停住，绝不穿墙。 */
+var PULL_TAU = 0.18;
+E.pull = function (e, x, y, dist) {
+  if (!e || !e.alive || !(dist > 0) || e.y < G.LAY.boardY || e.kbT > 0) return false;
+  var dx = x - e.x, dy = y - e.y;
+  var d = Math.sqrt(dx * dx + dy * dy);
+  if (d < 1 || d > dist * 3) return false;
+  var mass = 1 + (e.def.r - 10) * 0.09 + (e.def.armor || 0) * 0.18;
+  var v0 = (dist / mass) / PULL_TAU;
+  e.pullVx = (dx / d) * v0;
+  e.pullVy = (dy / d) * v0;
+  e.pullT = PULL_TAU * 3.2;
   return true;
 };
 
@@ -287,9 +314,23 @@ E.push = function (e, dirX, dirY, dist) {
         if (e.x > kMaxX) { e.x = kMaxX; e.kbvx = 0; }
         if (e.y < kMinY) { e.y = kMinY; e.kbvy = 0; }
         if (e.kbT <= 0) { e.kbvx = 0; e.kbvy = 0; }
+      } else if (e.pullT > 0) {
+        e.pullT -= dt;
+        var pdt = Math.min(dt, 0.05);
+        var px = e.x + e.pullVx * pdt;
+        var py = e.y + e.pullVy * pdt;
+        px = U.clamp(px, CFG.BX + 6, CFG.BX + CFG.BOARD_W - 6);
+        py = Math.max(G.LAY.boardY + 6, py);
+        var pc = U.clamp(Math.floor((px - CFG.BX) / CFG.CELL), 0, CFG.COLS - 1);
+        var pr = U.clamp(Math.floor((py - G.LAY.boardY) / CFG.CELL), 0, CFG.ROWS - 1);
+        if (!Grid.isBlocked(pc, pr)) { e.x = px; e.y = py; }
+        else { e.pullVx = 0; e.pullVy = 0; e.pullT = 0; }
+        var pullDecay = Math.exp(-pdt / PULL_TAU);
+        e.pullVx *= pullDecay; e.pullVy *= pullDecay;
+        if (e.pullT <= 0) { e.pullVx = 0; e.pullVy = 0; }
       }
 
-      if (!frozen && e.kbT <= 0) {
+      if (!frozen && e.kbT <= 0 && e.pullT <= 0) {
         var tRange = e.def.towerRange || 74;
         if (e.def.towerDps && !phasing) {
           // 破墙者：以拆塔为第一优先（结晶护盾期间啃不动）

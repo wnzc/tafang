@@ -37,7 +37,7 @@
 <script src="../js/main.js"></script>
 <script>
 /*
- * 给无头 Chrome 拍图用：?scene=game|monsters|tech|menu|set|help|over|win|codex|pop&wx=1
+ * 给无头 Chrome 拍图用：?scene=game|overload|monsters|tech|menu|set|help|over|win|codex|pop&wx=1
  *   codex 另有 &tab=0|1 &sel=<key> &seen=<逗号分隔|all>
  *   pop   另有 &key=<怪物 key>
  *   wx=1 时模拟微信安全区（状态栏 + 右上角胶囊），用来肉眼验收顶部适配。
@@ -107,6 +107,32 @@
     G.Game.startWave(true);
     for (var i = 0; i < 900; i++) G.Game.update(1 / 60);   // 15 秒，够打起来
     G.Game.energy = 415;
+    G.Game.bannerT = 0;
+    G.Game.toastT = 0;
+
+  } else if (scene === 'overload') {
+    /* 过载专用的定格验收页：?elem=pyro|electro|anemo。直接喂足临界充能，
+     * 画的是实际过载函数，不是另写一份演示动画。 */
+    G.Game.startRun();
+    G.Codex.markAllSeen();
+    var oe = q.get('elem') || 'pyro';
+    place([[3, 5, 'pyro'], [4, 5, 'hydro'], [5, 5, 'electro'], [5, 6, 'electro'], [2, 7, 'anemo']]);
+    var od = { pyro: { name: '蒸发', color: '#ef7938' }, electro: { name: '感电', color: '#b7a3ff' },
+      anemo: { name: '扩散', color: '#33ccb3' } }[oe] || { name: '蒸发', color: '#ef7938' };
+    var ot = G.Enemies.create('bulwark', 1, 1, 1);
+    ot.x = G.Grid.cellCX(5); ot.y = G.LAY.boardY + G.CFG.CELL * 4.6; ot.spawnT = 0;
+    G.Game.enemies.push(ot);
+    for (var oi = 0; oi < 5; oi++) {
+      var om = G.Enemies.create(oi % 2 ? 'drifter' : 'sprinter', 1, 1, 1);
+      om.x = ot.x + (oi - 2) * 34; om.y = ot.y + 56 + (oi % 2) * 26; om.spawnT = 0;
+      G.Game.enemies.push(om);
+    }
+    var on = { x: ot.x, y: ot.y, a: G.Game.towers[0], b: G.Game.towers[1],
+      def: { name: od.name, color: od.color, overloadElem: oe } };
+    for (var oc = 0; oc < G.CFG.RES.overload.threshold / G.CFG.RES.overload.charge; oc++) {
+      G.Resonance.addOverload(G.Game, on, ot);
+    }
+    G.Enemies.update(G.Game, 1 / 60);
     G.Game.bannerT = 0;
     G.Game.toastT = 0;
 

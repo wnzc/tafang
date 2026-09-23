@@ -42,6 +42,26 @@
       {
         "value": "README.md",
         "type": "file"
+      },
+      {
+        "value": "assets/backgrounds/leyline-tide-v1.png",
+        "type": "file"
+      },
+      {
+        "value": "assets/backgrounds/leyline-echo-v1.png",
+        "type": "file"
+      },
+      {
+        "value": "assets/backgrounds/leyline-ember-v1.png",
+        "type": "file"
+      },
+      {
+        "value": "assets/backgrounds/home-leyline-v1.png",
+        "type": "file"
+      },
+      {
+        "value": "assets/core/echo-core-v1.png",
+        "type": "file"
       }
     ],
     "include": []

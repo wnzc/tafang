@@ -24,7 +24,7 @@
   /** 需要走 lighter 的类型 */
   var GLOW_TYPE = {
     ring: 1, arc: 1, shock: 1, spark: 1, beam: 1,
-    flash: 1, muzzle: 1, bolt: 1, ice: 1, ripple: 1
+    flash: 1, muzzle: 1, bolt: 1, ice: 1, ripple: 1, flame: 1, vortex: 1, plume: 1
   };
 
   function push(f) {
@@ -159,6 +159,46 @@
         s: U.rand(1.4, 3), ph: U.rand(0, 6.28)
       });
     }
+  };
+
+  /** 火系过载：不画同心圆，改为数束有方向的火舌向外撕开。 */
+  FX.flameBurst = function (x, y, color, power) {
+    power = power || 1;
+    var n = Math.round(10 * power);
+    for (var i = 0; i < n; i++) {
+      var ang = (i / n) * Math.PI * 2 + U.rand(-0.16, 0.16);
+      push({ t: 'flame', x: x, y: y, ang: ang, len: U.rand(44, 88) * power,
+        wide: U.rand(9, 16) * power, color: color, a: 0, dur: U.rand(0.28, 0.46), delay: i * 0.012 });
+    }
+    FX.ember(x, y, Math.round(7 * power), color);
+  };
+
+  /** 风系过载：三条非闭合的旋臂 + 延迟错开，像吞入怪群的风眼而非扩散环。 */
+  FX.vortex = function (x, y, radius, color) {
+    for (var i = 0; i < 3; i++) {
+      push({ t: 'vortex', x: x, y: y, radius: radius, phase: i * Math.PI * 2 / 3,
+        color: color, a: 0, dur: 0.62, delay: i * 0.045 });
+    }
+  };
+
+  /** 蒸发/燃烧的热气柱：向上扭动的多股烟焰，避免用圆形冲击波代替气体。 */
+  FX.plume = function (x, y, color, power) {
+    power = power || 1;
+    var n = Math.round(6 * power);
+    for (var i = 0; i < n; i++) {
+      push({ t: 'plume', x: x + U.rand(-15, 15), y: y + U.rand(-8, 8),
+        len: U.rand(42, 82) * power, drift: U.rand(-34, 34) * power, color: color,
+        a: 0, dur: U.rand(0.42, 0.72), delay: i * 0.025 });
+    }
+  };
+
+  /** 清波庆祝：向上扬起的旗流、两侧星屑与横向光束，不使用圆形扩散。 */
+  FX.victoryBurst = function (x, y, color) {
+    FX.beam(x - 104, y + 18, x - 18, y - 12, color, 0.32, 3);
+    FX.beam(x + 104, y + 18, x + 18, y - 12, color, 0.32, 3);
+    FX.spark(x, y + 16, -Math.PI / 2, 0.95, 12, color, 240, 0.58);
+    FX.shard(x, y + 10, 7, '#d8fff0', 145);
+    FX.ember(x, y + 6, 7, color);
   };
 
   /** 落地尘土环 */
@@ -403,6 +443,57 @@
       ctx.strokeStyle = '#ffffff';
       ctx.lineWidth = 1.2 * (1 - k);
       U.poly(ctx, f.x, f.y, ir * 0.6, 6, f.rot * 6.28);
+      ctx.stroke();
+
+    } else if (t === 'flame') {
+      var reach = f.len * (0.28 + easeOut(k) * 0.78);
+      var ca2 = Math.cos(f.ang), sa2 = Math.sin(f.ang);
+      var nx = -sa2, ny = ca2;
+      var fw = f.wide * (1 - k * 0.45);
+      ctx.fillStyle = U.hexToRgba(f.color, 0.68 * (1 - k));
+      ctx.beginPath();
+      ctx.moveTo(f.x - nx * fw, f.y - ny * fw);
+      ctx.quadraticCurveTo(f.x + ca2 * reach * 0.48 - nx * fw * 0.45, f.y + sa2 * reach * 0.48 - ny * fw * 0.45,
+        f.x + ca2 * reach, f.y + sa2 * reach);
+      ctx.quadraticCurveTo(f.x + ca2 * reach * 0.52 + nx * fw * 0.38, f.y + sa2 * reach * 0.52 + ny * fw * 0.38,
+        f.x + nx * fw, f.y + ny * fw);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#fff3c4';
+      ctx.lineWidth = Math.max(0.8, fw * 0.26 * (1 - k));
+      ctx.beginPath(); ctx.moveTo(f.x, f.y);
+      ctx.lineTo(f.x + ca2 * reach * 0.66, f.y + sa2 * reach * 0.66); ctx.stroke();
+
+    } else if (t === 'vortex') {
+      var turns = 10, spin = f.phase - k * 3.6;
+      ctx.strokeStyle = f.color;
+      ctx.lineWidth = 3.2 * (1 - k * 0.45) + 0.5;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      for (var vi = 0; vi <= turns; vi++) {
+        var vk = vi / turns;
+        var vr = f.radius * (0.14 + vk * 0.82) * (1 - k * 0.24);
+        var va = spin + vk * 2.7;
+        var vx = f.x + Math.cos(va) * vr, vy = f.y + Math.sin(va) * vr * 0.62;
+        if (vi === 0) ctx.moveTo(vx, vy); else ctx.lineTo(vx, vy);
+      }
+      ctx.stroke();
+      ctx.strokeStyle = '#effff9';
+      ctx.lineWidth = 0.9 + (1 - k) * 0.8;
+      ctx.stroke();
+
+    } else if (t === 'plume') {
+      var rise = f.len * easeOut(k);
+      var sway = f.drift * (0.25 + k * 0.75);
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = U.hexToRgba(f.color, 0.64 * (1 - k));
+      ctx.lineWidth = 8 * (1 - k * 0.55) + 1;
+      ctx.beginPath();
+      ctx.moveTo(f.x, f.y);
+      ctx.bezierCurveTo(f.x + f.drift * 0.55, f.y - rise * 0.25,
+        f.x - f.drift * 0.24, f.y - rise * 0.7, f.x + sway, f.y - rise);
+      ctx.stroke();
+      ctx.strokeStyle = '#fff6dc';
+      ctx.lineWidth = 2.1 * (1 - k) + 0.5;
       ctx.stroke();
     }
   }

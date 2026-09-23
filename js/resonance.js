@@ -40,6 +40,93 @@
     if (G.Game.tagReact) G.Game.tagReact(e, def.name, def.color);
   }
 
+  function overloadHit(e, dmg, name, color) {
+    G.Game.damageEnemy(e, dmg, color, { pierce: true });
+    if (G.Game.tagReact) G.Game.tagReact(e, name, color);
+  }
+
+  function nearestAlive(list, x, y, radius, used) {
+    var found = null, best = radius * radius;
+    for (var i = 0; i < list.length; i++) {
+      var e = list[i];
+      if (!e.alive || (used && used[e.uid])) continue;
+      var d2 = U.dist2(e.x, e.y, x, y);
+      if (d2 <= best) { best = d2; found = e; }
+    }
+    return found;
+  }
+
+  function triggerPyroOverload(game, target, def) {
+    var spec = CFG.RES.overload.pyro, list = game.enemies, used = {};
+    var x = target.x, y = target.y;
+    G.FX.flameBurst(x, y, def.color, 1.25);
+    G.FX.flash(x, y, 38, '#fff3c4', 0.16);
+    for (var i = 0; i <= spec.jumps; i++) {
+      var e = nearestAlive(list, x, y, spec.radius, used);
+      if (!e) break;
+      used[e.uid] = 1;
+      if (i > 0) {
+        G.FX.bolt(x, y, e.x, e.y, def.color, 0.24);
+        G.FX.flash(e.x, e.y, 34, def.color, 0.18);
+      }
+      overloadHit(e, spec.dmg, spec.name, def.color);
+      e.burnT = Math.max(e.burnT || 0, spec.burnT);
+      e.burnDps = Math.max(e.burnDps || 0, spec.burnDps);
+      x = e.x; y = e.y;
+    }
+  }
+
+  function triggerElectroOverload(game, target, def) {
+    var spec = CFG.RES.overload.electro, towers = game.towers, used = {};
+    var fired = 0;
+    for (var i = 0; i < towers.length && fired < spec.maxBolts; i++) {
+      var t = towers[i];
+      if (t.elem !== 'electro' || t.suppressed) continue;
+      var victim = nearestAlive(game.enemies, t.x, t.y, CFG.TOWERS.electro.range, used);
+      if (!victim) continue;
+      used[victim.uid] = 1;
+      G.FX.bolt(t.x, t.y, victim.x, victim.y, def.color, 0.28);
+      G.FX.spark(victim.x, victim.y, 0, Math.PI * 2, 5, def.color, 170, 0.3);
+      overloadHit(victim, spec.dmg, spec.name, def.color);
+      fired++;
+    }
+    if (!fired) {
+      G.FX.flash(target.x, target.y, 42, def.color, 0.22);
+      overloadHit(target, spec.dmg, spec.name, def.color);
+    }
+  }
+
+  function triggerAnemoOverload(game, target, def) {
+    var spec = CFG.RES.overload.anemo, list = game.enemies;
+    G.FX.vortex(target.x, target.y, spec.radius, def.color);
+    G.FX.spark(target.x, target.y, 0, Math.PI * 2, 10, '#e9fff8', 110, 0.46);
+    for (var i = 0; i < list.length; i++) {
+      var e = list[i];
+      if (!e.alive || U.dist(e.x, e.y, target.x, target.y) > spec.radius + e.r) continue;
+      if (G.Enemies.pull) G.Enemies.pull(e, target.x, target.y, spec.pull);
+      overloadHit(e, spec.dmg, spec.name, def.color);
+    }
+  }
+
+  RES.addOverload = function (game, node, target) {
+    var st = game.overload, spec = CFG.RES.overload;
+    var elem = node && node.def && node.def.overloadElem;
+    if (!st || !target || !target.alive || !elem || !spec[elem] || st.cooldown > 0) return false;
+    st.value = Math.min(spec.threshold, st.value + spec.charge);
+    st.lastElem = elem;
+    if (st.value < spec.threshold) return false;
+    st.value = 0;
+    st.elem = elem;
+    st.cooldown = spec.cooldown;
+    st.flash = spec.flash;
+    game.shake = Math.max(game.shake, 8);
+    if (G.Audio) G.Audio.reaction('overload');
+    if (elem === 'pyro') triggerPyroOverload(game, target, node.def);
+    else if (elem === 'electro') triggerElectroOverload(game, target, node.def);
+    else if (elem === 'anemo') triggerAnemoOverload(game, target, node.def);
+    return true;
+  };
+
   RES.reset = function () {
     RES.links = [];
     RES.nodes = [];
@@ -172,14 +259,15 @@
       return;
     }
     node.lastTargetUid = target.uid;
+    RES.addOverload(game, node, target);
     var ix = target.x, iy = target.y;
     G.FX.pop(ix, iy - target.r - 20, def.name, def.color, 15);
 
     if (def.kind === 'burst') {
       // 蒸发 / 融化：白热冲击波 + 外扩蒸汽，全表最高的单发反应伤害
-      G.FX.shock(ix, iy, def.radius, def.color, 0.46, 4);
-      G.FX.shock(ix, iy, def.radius * 0.55, '#ffffff', 0.3, 3);
+      G.FX.plume(ix, iy, def.color, 1.15);
       G.FX.ember(ix, iy, 8, def.color);
+      G.FX.flash(ix, iy, 40, '#fff6dc', 0.18);
       for (i = 0; i < list.length; i++) {
         e = list[i];
         if (!e.alive) continue;
@@ -195,7 +283,7 @@
     } else if (def.kind === 'super') {
       // 超导：冰晶沿六个方向炸开 + 冷雾，命中目标进入易伤
       G.FX.ice(ix, iy, def.radius * 0.9, def.color);
-      G.FX.shock(ix, iy, def.radius, def.color, 0.42, 3);
+      G.FX.shard(ix, iy, 11, '#d8f6ff', 135);
       for (i = 0; i < list.length; i++) {
         e = list[i];
         if (!e.alive) continue;
@@ -210,7 +298,7 @@
 
     } else if (def.kind === 'overload') {
       // 超载：中心爆 + 分叉电弧跳向最近目标
-      G.FX.shock(ix, iy, def.radius * 0.7, def.color, 0.34, 3);
+      G.FX.flameBurst(ix, iy, def.color, 0.65);
       G.FX.flash(ix, iy, 46, def.color, 0.24);
       var hits = [];
       for (i = 0; i < list.length; i++) {
@@ -227,7 +315,7 @@
         reactHit(hits[i].e, def.dmg, def);
         G.FX.spark(hits[i].e.x, hits[i].e.y, 0, Math.PI, 4, def.color, 140, 0.24);
       }
-      if (n === 0) G.FX.ring(ix, iy, def.radius * 0.6, def.color);
+      if (n === 0) G.FX.spark(ix, iy, 0, Math.PI * 2, 7, def.color, 150, 0.28);
       G.FX.spark(ix, iy, 0, Math.PI * 2, 6, '#ffd7f2', 190, 0.3);
 
     } else if (def.kind === 'echain') {
@@ -254,7 +342,7 @@
     } else if (def.kind === 'freeze') {
       // 冻结：范围内敌人定身，冻成冰雕
       G.FX.ice(ix, iy, def.radius, def.color);
-      G.FX.shock(ix, iy, def.radius, def.color, 0.4, 3);
+      G.FX.shard(ix, iy, 9, '#d0f4ff', 115);
       for (i = 0; i < list.length; i++) {
         e = list[i];
         if (!e.alive) continue;
@@ -265,25 +353,22 @@
       }
 
     } else if (def.kind === 'swirl') {
-      // 扩散：风把接触到的元素扯开，小伤害 + 大幅击退
-      G.FX.ring(ix, iy, 10, def.radius, def.color, 0.46, 3);
+      // 扩散：风把接触到的元素和怪群卷进反应中心，小伤害 + 聚怪。
+      G.FX.vortex(ix, iy, Math.min(78, def.radius * 0.78), def.color);
       G.FX.burst(ix, iy, 10, def.color, 150);
       for (i = 0; i < list.length; i++) {
         e = list[i];
         if (!e.alive) continue;
         if (U.dist(e.x, e.y, ix, iy) > def.radius + e.r) continue;
         reactHit(e, def.dmg, def);
-        /* 击退走速度场：分帧后退而不是瞬移。
-         * 被免疫窗挡下（0.55s 内已被推过）时只出伤害不出位移 —— 这是有意的：
-         * 多个风反应节点同时命中同一只怪，位移叠起来会一次退半屏。 */
-        G.Enemies.push(e, e.fx, e.fy, def.push);
-        G.FX.spark(e.x, e.y, Math.atan2(e.fy, e.fx), 0.8, 2, def.color, 130, 0.24);
+        G.Enemies.pull(e, ix, iy, def.pull);
+        G.FX.spark(e.x, e.y, Math.atan2(iy - e.y, ix - e.x), 0.8, 2, def.color, 130, 0.24);
       }
 
     } else if (def.kind === 'crystal') {
       // 结晶：邻塔获得岩晶护盾，护盾期间免疫啃咬伤害
       G.FX.shard(ix, iy, 8, '#ffe0a8', 140);
-      G.FX.ring(ix, iy, 8, def.radius, '#fabb57', 0.5, 3);
+      G.FX.ice(ix, iy, Math.min(72, def.radius * 0.7), '#fabb57');
       var tws = game.towers;
       for (i = 0; i < tws.length; i++) {
         var tw = tws[i];
@@ -295,8 +380,8 @@
     } else if (def.kind === 'bloom') {
       // 绽放：草原核炸开，范围二段伤害
       G.FX.burst(ix, iy, 14, '#b8f04c', 150);
-      G.FX.shock(ix, iy, def.radius, def.color, 0.44, 4);
-      G.FX.shock(ix, iy, def.radius * 0.5, '#ffffff', 0.28, 3);
+      G.FX.shard(ix, iy, 10, '#dcff96', 125);
+      G.FX.spark(ix, iy, 0, Math.PI * 2, 6, '#f5ffd0', 140, 0.32);
       for (i = 0; i < list.length; i++) {
         e = list[i];
         if (!e.alive) continue;
@@ -308,13 +393,13 @@
 
     } else if (def.kind === 'quicken') {
       // 激化：范围内己方塔伤害临时提升
-      G.FX.ring(ix, iy, 8, def.radius, def.color, 0.5, 3);
-      G.FX.burst(ix, iy, 8, def.color, 110);
+      G.FX.spark(ix, iy, 0, Math.PI * 2, 12, def.color, 155, 0.34);
       var tws2 = game.towers;
       for (i = 0; i < tws2.length; i++) {
         var tw2 = tws2[i];
         if (U.dist(tw2.x, tw2.y, node.x, node.y) > def.radius) continue;
         tw2.quickT = Math.max(tw2.quickT || 0, def.dur);
+        G.FX.bolt(node.x, node.y, tw2.x, tw2.y, def.color, 0.2);
       }
       for (i = 0; i < list.length; i++) {
         e = list[i];
@@ -326,7 +411,7 @@
     } else if (def.kind === 'burn') {
       // 燃烧：范围内敌人点燃，持续掉血
       G.FX.ember(ix, iy, 10, def.color);
-      G.FX.ring(ix, iy, 8, def.radius, def.color, 0.44, 3);
+      G.FX.plume(ix, iy, def.color, 0.6);
       for (i = 0; i < list.length; i++) {
         e = list[i];
         if (!e.alive) continue;
@@ -338,10 +423,6 @@
         G.FX.spark(e.x, e.y, 0, Math.PI * 2, 2, def.color, 80, 0.32);
       }
     }
-  }
-
-  function FX_ring(x, y, r, color) {
-    G.FX.ring(x, y, r * 0.25, r, color, 0.5, 3);
   }
 
   RES.update = function (game, dt) {

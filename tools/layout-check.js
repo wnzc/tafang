@@ -681,12 +681,51 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
         `键 x1=${sbRect.x1.toFixed(0)} vs 开波按钮右沿 ${DX(LAY.waveBtn.x + LAY.waveBtn.w).toFixed(0)}`));
     }
 
+    const speedBtn = LAY.speedBtn, settingBtn = LAY.settingsBtn;
+    line.checks.push(check(speedBtn.x >= LAY.waveBtn.x + LAY.waveBtn.w + S(10),
+      '倍速按钮与开波按钮留有间距', ''));
+    line.checks.push(check(speedBtn.x + speedBtn.w + S(10) <= settingBtn.x,
+      '倍速按钮与设置按钮不重叠', ''));
+
     // 6) HUD 内部不互相压（回声条已随倒带下线，左列只剩「血条 → 开波按钮」）
     line.checks.push(check(LAY.hpBar.y > H.hpLabel + F(13) / 2, '血条标题有间距', `${LAY.hpBar.y} vs ${H.hpLabel}`));
     line.checks.push(check(H.waveBtn.y - (LAY.hpBar.y + LAY.hpBar.h) >= S(12), '开波按钮不压血条',
       `间隙 ${H.waveBtn.y - (LAY.hpBar.y + LAY.hpBar.h)}px`));
     line.checks.push(check(H.energyVal + F(20) / 2 < H.waveBtn.y, '能量数字不压开波按钮',
       `${H.energyVal + F(20) / 2} vs ${H.waveBtn.y}`));
+    /* 首次教程的面板与两座指定教学塔都在棋盘内，且不能盖住需要玩家点击的格子。 */
+    const tutPanel = UI.tutorialPanel(), tutSkip = UI.tutorialSkip(), tutNext = UI.tutorialNext();
+    line.checks.push(check(tutPanel.x >= LAY.boardX && tutPanel.x + tutPanel.w <= LAY.boardX + LAY.boardW &&
+      tutPanel.y >= LAY.boardY && tutPanel.y + tutPanel.h <= LAY.boardY + LAY.boardH,
+    '新手教程面板在棋盘内', ''));
+    line.checks.push(check(tutSkip.x >= tutPanel.x && tutSkip.x + tutSkip.w <= tutPanel.x + tutPanel.w &&
+      tutNext.x >= tutPanel.x && tutNext.x + tutNext.w <= tutPanel.x + tutPanel.w,
+    '教程跳过与继续按钮在面板内', ''));
+    for (const ts of [UI.tutorialTarget(1), UI.tutorialTarget(2)]) {
+      const tr = { x1: LAY.boardX + ts.col * CFG.CELL, y1: LAY.boardY + ts.row * CFG.CELL,
+        x2: LAY.boardX + (ts.col + 1) * CFG.CELL, y2: LAY.boardY + (ts.row + 1) * CFG.CELL };
+      const pr = { x1: tutPanel.x, y1: tutPanel.y, x2: tutPanel.x + tutPanel.w, y2: tutPanel.y + tutPanel.h };
+      line.checks.push(check(!overlap(tr, pr), '教程指定建造格不被面板遮住', ts.tower));
+    }
+    /* 共振临界条位于血条与开波按钮之间，不占右侧能量列，三档字号下都要保留
+     * 一整行的呼吸位；没有该几何就说明渲染与版式无法同源。 */
+    const overloadBar = H.overloadBar;
+    const overloadValue = H.overloadValue;
+    line.checks.push(check(!!overloadBar, 'HUD 提供共振临界条几何', ''));
+    line.checks.push(check(typeof overloadValue === 'number', 'HUD 提供共振临界数值锚点', ''));
+    if (overloadBar) {
+      line.checks.push(check(overloadBar.x >= LAY.hpBar.x && overloadBar.x + overloadBar.w <= LAY.hpBar.x + LAY.hpBar.w,
+        '共振临界条横向落在血条列内', ''));
+      line.checks.push(check(overloadBar.y >= LAY.hpBar.y + LAY.hpBar.h + S(4) &&
+        overloadBar.y + overloadBar.h + S(6) <= H.waveBtn.y,
+      '共振临界条不压血条或开波按钮', ''));
+      line.checks.push(check(H.overloadLabel + F(12) / 2 + S(2) <= overloadBar.y,
+        '共振临界标题不覆盖进度填充', ''));
+      if (typeof overloadValue === 'number') {
+        line.checks.push(check(overloadValue + F(12) / 2 + S(2) <= overloadBar.y,
+          '共振临界数值不覆盖进度填充', ''));
+      }
+    }
 
     // 6b) 左右两列在同一条水平带上最容易叠字 —— 宽度全部按估算字宽现算
     const titleRight = 40 + estW('回声防线', F(28));
@@ -883,11 +922,12 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
         setHome.y + setHome.h <= LAY.setTop + LAY.setH + EPS, '设置页两个出口在页面块内', ''));
     }
 
-    // 7f) 菜单：介绍面板内的两行不压边，三个次级按钮（玩法/图鉴/设置）不叠
-    const introTop = LAY.menuTop + S(176), introBot = introTop + S(116);
-    line.checks.push(check(LAY.menuTop + S(214) - F(16) / 2 >= introTop, '菜单介绍首行在面板内', ''));
-    line.checks.push(check(LAY.menuTop + S(258) + F(13) / 2 <= introBot, '菜单介绍次行在面板内', ''));
+    // 7f) 菜单：全屏背景上的底部操作区。开始与四个次按钮都从安全区反推定位。
     const ms = UI.menuStart(), mh = UI.menuHelp(), mc = UI.menuCodex(), mst = UI.menuSet();
+    const menuFooterY = UI.menuFooterY();
+    line.checks.push(check(menuFooterY <= LAY.designH - LAY.insetBottom - S(24) &&
+      menuFooterY >= LAY.designH - LAY.insetBottom - S(40),
+    '菜单底部信息锚定在安全区上方 32px', ''));
     const subs = [mh, mc, mst];
     let subHit = 0;
     for (let a = 0; a < subs.length; a++) {
@@ -898,15 +938,13 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
     }
     line.checks.push(check(subHit === 0, '菜单三个次按钮不重叠', String(subHit)));
     line.checks.push(check(subs[0].x >= 40 - EPS && subs[2].x + subs[2].w <= 680 + EPS,
-      '菜单次按钮在屏内且与介绍面板对齐',
+      '菜单次按钮在屏内',
       `[${subs[0].x}, ${subs[2].x + subs[2].w}]`));
     line.checks.push(check(estW('图鉴', F(18)) + S(16) <= mc.w, '菜单次按钮容得下两字标签', ''));
     line.checks.push(check(ms.y + ms.h + S(8) <= mh.y, '菜单次按钮在主按钮之下', ''));
-    line.checks.push(check(LAY.menuTop + S(574) - F(14) / 2 >= mh.y + mh.h, '菜单最高分在按钮之下', ''));
-    const menuTxt = UI.MENU_INTRO[0] + UI.MENU_INTRO[1];
-    line.checks.push(check(76 + estW(UI.MENU_INTRO[0], F(16)) <= 720 - 46, '菜单介绍首行不越出面板', ''));
-    line.checks.push(check(76 + estW(UI.MENU_INTRO[1], F(13)) <= 720 - 46, '菜单介绍次行不越出面板', ''));
-    line.checks.push(check(!!menuTxt && ms.y + ms.h <= LAY.menuTop + LAY.menuH, '菜单主按钮在菜单块内', ''));
+    line.checks.push(check(UI.menuFooterY() - S(38) - F(14) / 2 >= mh.y + mh.h, '菜单最高分在按钮之下', ''));
+    line.checks.push(check(ms.y + ms.h <= LAY.designH - LAY.insetBottom - S(16),
+      '菜单主按钮在底部安全区之上', ''));
 
     /* 7g) 浮动提示（Toast）贴在建造栏正上方。
      * 16:9 与平板这类「高度刚好装下」的机型，棋盘底下一点余量都没有，
@@ -979,8 +1017,8 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
 
     line.checks.push(check(G.Render && G.Render.TOWER_ICON_R >= 12,
       '炮台中央元素图标放大到清晰尺寸', String(G.Render && G.Render.TOWER_ICON_R)));
-    line.checks.push(check(G.Render && G.Render.SHOW_TOWER_NETWORK === false,
-      '炮台之间不渲染共振或反应特效', String(G.Render && G.Render.SHOW_TOWER_NETWORK)));
+    line.checks.push(check(G.Render && G.Render.SHOW_TOWER_NETWORK === true,
+      '同元素炮台渲染共振连线', String(G.Render && G.Render.SHOW_TOWER_NETWORK)));
 
     // 详情：四个块自上而下依次排开、不重叠、都在块内
     const heroR = UI.codexHero(), statR = UI.codexStatCells(),
@@ -1167,8 +1205,8 @@ for (let lv = 0; lv < LEVELS.length; lv++) {
     if (!env.wx && lv === 1) {
       const LOCK = {
         title: 36, sub: 74, hpLabel: 106,
-        hpBarY: 122, waveBtnY: 172, settingsY: 176,
-        hudRight: 680, contentTop: 268, boardY: 340, barY: 1322, designH: 1558,
+        hpBarY: 122, waveBtnY: 184, settingsY: 187,
+        hudRight: 680, contentTop: 268, boardY: 330, barY: 1302, designH: 1558,
         barH: 236, cardW: 221, cardH: 104
       };
       const now = {

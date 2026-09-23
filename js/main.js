@@ -11,6 +11,7 @@
     prevState: 'menu',      // 从哪个整屏版式进来的（设置/玩法/图鉴的「返回」回到这里；
                             // 「首次遭遇」弹窗也用它记住暂停在哪——prep 还是 wave）
     hidden: false,         // 切到后台（visibilitychange / wx.onHide）置 true → 主循环暂停
+    speed: 1,              // 1 / 2：仅战斗页可切换，影响战斗与特效推进
     time: 0,
     coreHp: 100,
     coreMax: 100,
@@ -41,6 +42,10 @@
     lastGain: null,         // 上一局的结算结果 { gain, unlocked, changed }，结算面板用
     bannerT: 0,
     bannerMsg: '',
+    /* 共振临界：自动由命中反应充能，满格后触发一记元素过载；不是主动技。 */
+    overload: { value: 0, cooldown: 0, elem: '', flash: 0, lastElem: '' },
+    /* 仅首次进局的可跳过实战教程；存档键在 finishTutorial 统一写入。 */
+    tutorial: { active: false, step: 0 },
     /* —— 图鉴 —— */
     codexTab: 0,            // 0 = 怪物，1 = 炮台
     codexSel: null,         // 详情视图里选中的条目（null = 列表视图）
@@ -87,8 +92,16 @@
     g.toastT = 0;
     g.bannerT = 0;
     g.hidden = false;
+    g.speed = 1;
     g.deep = false;
     g.lastGain = null;
+    g.overload.value = 0;
+    g.overload.cooldown = 0;
+    g.overload.elem = '';
+    g.overload.flash = 0;
+    g.overload.lastElem = '';
+    g.tutorial.active = false;
+    g.tutorial.step = 0;
     /* 图鉴的选中项与待弹队列要清；已解锁记录不动 —— 那是跨局的（存在 echo_seen 里） */
     g.codexSel = null;
     g.codexQueue.length = 0;
@@ -121,11 +134,45 @@
       ? '深渊档：敌人血量 ×' + CFG.DEEP.hpMul + '｜独立计榜'
       : '点下方卡片选塔 → 点棋盘空格建造';
     game.toastT = game.deep ? 3.6 : 4.5;
+    if (!R.store.get('echo_tutorial_v1', false)) {
+      game.tutorial.active = true;
+      game.tutorial.step = 0;
+      game.selCard = null;
+      game.bannerT = 0;
+      game.toastT = 0;
+    }
+  };
+
+  G.Game.finishTutorial = function () {
+    game.tutorial.active = false;
+    game.tutorial.step = 0;
+    game.selCard = null;
+    game.prepT = CFG.PREP_TIME;
+    R.store.set('echo_tutorial_v1', true);
+    G.Game.toast('教程完成 · 塔会改路，贴边会反应');
+    A('ui');
+  };
+
+  G.Game.advanceTutorial = function () {
+    if (!game.tutorial.active) return;
+    if (game.tutorial.step === 0) {
+      game.tutorial.step = 1;
+      game.selCard = 'pyro';
+      A('ui');
+    } else if (game.tutorial.step === 3) {
+      G.Game.finishTutorial();
+    }
   };
 
   G.Game.toast = function (msg) {
     game.toastMsg = msg;
     game.toastT = 1.5;
+  };
+
+  G.Game.toggleSpeed = function () {
+    game.speed = game.speed === 2 ? 1 : 2;
+    G.Game.toast('战斗速度 ×' + game.speed);
+    A('ui');
   };
 
   /* ------------------------------------------------------------------ */
@@ -386,10 +433,7 @@
      * 42+8n 提到 60+12n 时只改了发放处，飘字少报了一路，属于典型的双写脱节。 */
     var waveGain = 60 + game.wave * 12;
     game.energy += waveGain;
-    G.FX.ripple(CENTER_X(), CENTER_Y(), 220, '#7ef2c0');
-    G.FX.shock(CENTER_X(), CENTER_Y(), 300, '#7ef2c0', 0.7, 5);
-    G.FX.spark(CENTER_X(), CENTER_Y(), -Math.PI / 2, Math.PI, 20, '#9dffd8', 280, 0.7);
-    G.FX.ember(CENTER_X(), CENTER_Y(), 14, '#7ef2c0');
+    G.FX.victoryBurst(CENTER_X(), CENTER_Y(), '#7ef2c0');
     // 字号用 24 而不是原来的 23：23 不在字号表里，会走兜底倍率，
     // 换档时这一处会和其他文字脱节（font-check 现在会把特效字号也录进去）
     G.FX.pop(CENTER_X(), CENTER_Y(), '波次清空 +' + waveGain, '#7ef2c0', 24);
@@ -410,6 +454,7 @@
     // 切到后台期间，任何一次 update 直接跳过：时间、敌人、塔、波次全冻住，
     // 回来后从原状态继续，不会堆积一大段 dt 把战场瞬移。
     if (g.hidden) return;
+    dt *= g.speed;
     g.time += dt;
 
     if (g.shake > 0) g.shake = Math.max(0, g.shake - dt * 22);
@@ -417,7 +462,12 @@
     if (g.whiteFlash > 0) g.whiteFlash = Math.max(0, g.whiteFlash - dt * 2.6);
     if (g.toastT > 0) g.toastT -= dt;
     if (g.bannerT > 0) g.bannerT -= dt;
+    if (g.overload.cooldown > 0) g.overload.cooldown = Math.max(0, g.overload.cooldown - dt);
+    if (g.overload.flash > 0) g.overload.flash = Math.max(0, g.overload.flash - dt);
     G.FX.update(dt);
+
+    // 教程画面仍让时钟/环境动画走，但不倒数、不刷怪、不让塔自动开火。
+    if (g.tutorial.active) return;
 
     /* 整屏版式（菜单/设置/玩法/图鉴/结算）与「首次遭遇」弹窗里不跑战斗逻辑。
      * 弹窗走同一条早退，就是「暂停」的全部实现：prepT 不倒数、敌人不动、
@@ -483,8 +533,17 @@
     // 任意一次点击都视为用户手势，用来解锁浏览器音频
     if (G.Audio) G.Audio.unlock();
 
+    if (g.tutorial.active) {
+      G.Game.onTutorialTap(x, y);
+      return;
+    }
+
     // 游戏内快捷设置按钮（胶囊下方右侧空档）：任何战斗界面都能点开设置页
-    if (g.state !== 'set' && g.state !== 'help' &&
+    if ((g.state === 'prep' || g.state === 'wave') && inRect(x, y, LAY.speedBtn)) {
+      G.Game.toggleSpeed();
+      return;
+    }
+    if (g.state !== 'menu' && g.state !== 'set' && g.state !== 'help' &&
       g.state !== 'codex' && g.state !== 'pop' && inRect(x, y, LAY.settingsBtn)) {
       A('ui');
       G.Game.openPage('set');
@@ -571,6 +630,26 @@
     }
 
     g.sel = null;
+  };
+
+  G.Game.onTutorialTap = function (x, y) {
+    var step = game.tutorial.step;
+    if (inRect(x, y, G.UI.tutorialSkip())) { G.Game.finishTutorial(); return; }
+    if (step === 0 || step === 3) {
+      if (inRect(x, y, G.UI.tutorialNext())) G.Game.advanceTutorial();
+      return;
+    }
+    var target = G.UI.tutorialTarget(step);
+    if (!target) return;
+    var LAY = G.LAY;
+    if (x < LAY.boardX || x > LAY.boardX + LAY.boardW || y < LAY.boardY || y > LAY.boardY + LAY.boardH) return;
+    var col = Math.floor((x - LAY.boardX) / CELL);
+    var row = Math.floor((y - LAY.boardY) / CELL);
+    if (col !== target.col || row !== target.row) { A('deny'); G.Game.toast('点亮的格子'); return; }
+    game.selCard = target.tower;
+    if (!G.Game.tryBuild(col, row)) return;
+    if (step === 1) { game.tutorial.step = 2; game.selCard = 'hydro'; A('ui'); }
+    else if (step === 2) { game.tutorial.step = 3; game.selCard = null; A('ui'); }
   };
 
   /* ------------------------------------------------------------------ */

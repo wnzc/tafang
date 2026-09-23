@@ -61,6 +61,44 @@ for (const f of files) require(path.join(__dirname, '..', 'js', f + '.js'));
 const G = global.ECHO_TD;
 if (!G) { console.error('模块加载失败：ECHO_TD 未挂载'); process.exit(1); }
 
+/* ---------------------- 首次实战教程 ---------------------- */
+{
+  G.Runtime.init();
+  G.Game.reset();
+  G.Game.startRun();
+  const prepBeforeTutorial = G.Game.prepT;
+  G.Game.update(1);
+  if (!G.Game.tutorial.active || G.Game.tutorial.step !== 0 || G.Game.prepT !== prepBeforeTutorial) {
+    throw new Error('新档案开局必须停在第 0 步教程，且备战计时不能偷跑');
+  }
+  G.Game.advanceTutorial();
+  const pyroTarget = G.UI.tutorialTarget(1);
+  G.Game.onTutorialTap(G.Grid.cellCX(pyroTarget.col), G.LAY.boardY + (pyroTarget.row + 0.5) * G.CFG.CELL);
+  const hydroTarget = G.UI.tutorialTarget(2);
+  G.Game.onTutorialTap(G.Grid.cellCX(hydroTarget.col), G.LAY.boardY + (hydroTarget.row + 0.5) * G.CFG.CELL);
+  if (G.Game.tutorial.step !== 3 || G.Game.towers.length !== 2 ||
+    G.Game.towers[0].elem !== 'pyro' || G.Game.towers[1].elem !== 'hydro') {
+    throw new Error('教程必须依次引导火塔改路与水塔贴边反应');
+  }
+  G.Game.advanceTutorial();
+  if (G.Game.tutorial.active || !G.Runtime.store.get('echo_tutorial_v1', false)) {
+    throw new Error('教程完成后必须退出并写入 echo_tutorial_v1');
+  }
+  G.Game.reset();
+  G.Game.startRun();
+  if (G.Game.tutorial.active) throw new Error('已完成教程的档案不应再次弹出教程');
+  G.Game.reset();
+  const menuSettings = G.LAY.settingsBtn;
+  G.Game.onTap(menuSettings.x + menuSettings.w / 2, menuSettings.y + menuSettings.h / 2);
+  if (G.Game.state !== 'menu') throw new Error('首页右上角不应保留设置热区');
+  G.Game.startRun();
+  if (G.Game.speed !== 1) throw new Error('新对局应从 1 倍速开始');
+  G.Game.toggleSpeed();
+  if (G.Game.speed !== 2) throw new Error('倍速按钮应切换到 2 倍速');
+  G.Game.toggleSpeed();
+  if (G.Game.speed !== 1) throw new Error('倍速按钮应能切回 1 倍速');
+}
+
 /* ---------------------- 启动 ---------------------- */
 const report = { errors: [], nan: [], reacts: {}, wavesReached: 0 };
 try {
@@ -215,10 +253,11 @@ try {
     report.errors.push('元素反应没有锁定命中的怪物: ' + JSON.stringify(res.react));
   }
 
-  // 流风同时缩短索敌射程与命中风场，避免「远距离隔屏吹回去」。
-  res.wind = { range: G.CFG.TOWERS.anemo.range, aoe: G.CFG.TOWERS.anemo.aoe };
-  if (res.wind.range !== 69 || res.wind.aoe !== 48) {
-    report.errors.push('流风范围未缩小一半: ' + JSON.stringify(res.wind));
+  // 流风改为低伤聚怪：范围翻倍，彻底不再把怪往出生线推。
+  res.wind = { range: G.CFG.TOWERS.anemo.range, aoe: G.CFG.TOWERS.anemo.aoe,
+    dmg: G.CFG.TOWERS.anemo.dmg, pull: G.CFG.TOWERS.anemo.pull };
+  if (res.wind.range !== 138 || res.wind.aoe !== 96 || res.wind.dmg !== 4 || res.wind.pull !== 36) {
+    report.errors.push('流风聚怪参数未接通: ' + JSON.stringify(res.wind));
   }
 
   // ⑥ 首领波提示
@@ -311,6 +350,130 @@ try {
     report.errors.push('削弱后减速+击退仍把怪钉死: ' + JSON.stringify(slowKb));
   }
   report.slowKb = slowKb;
+}
+
+/* ---------------------- 共振过载：首版三元素爆发 ----------------------
+ * 过载是普通反应的上层节奏器：只有反应真的命中敌人才能充能，临界后立即
+ * 消耗一格并进入冷却。这里不依赖 AI 阵地，直接构造确定的反应节点，避免
+ * 随机波次让「本来该触发」的断言偶尔跑不到。
+ */
+{
+  const g = G.Game;
+  G.Game.reset();
+  G.Game.startRun();
+  const victim = G.Enemies.create('drifter', 1, 0, 1);
+  victim.x = G.CFG.BX + G.CFG.CELL * 4.5;
+  victim.y = G.LAY.boardY + G.CFG.CELL * 5.5;
+  victim.spawnT = 0;
+  g.enemies.push(victim);
+  const node = {
+    x: victim.x, y: victim.y,
+    a: { elem: 'pyro', x: victim.x - 20, y: victim.y },
+    b: { elem: 'hydro', x: victim.x + 20, y: victim.y },
+    def: { name: '蒸发', color: '#ef7938', overloadElem: 'pyro' }
+  };
+  const before = victim.hp;
+  const emptyValue = g.overload && g.overload.value;
+  G.Resonance.addOverload(g, node, null);
+  if (g.overload.value !== emptyValue) {
+    report.errors.push('空反应节点不应给共振临界充能');
+  }
+  for (let i = 0; i < G.CFG.RES.overload.threshold / G.CFG.RES.overload.charge; i++) {
+    G.Resonance.addOverload(g, node, victim);
+  }
+  report.overload = { elem: g.overload.elem, value: g.overload.value, cooldown: g.overload.cooldown, dmg: before - victim.hp };
+  if (g.overload.elem !== 'pyro' || g.overload.value !== 0 || g.overload.cooldown <= 0 || victim.hp >= before) {
+    report.errors.push('火系共振过载未在临界后结算并进入冷却: ' + JSON.stringify(report.overload));
+  }
+  /* 过载表现不能退化为所有元素共用 shock/ring：火要有定向火舌，风要有
+   * 非闭合的旋臂。这里直接验两种专属 FX 原语存在且确实生成粒子。 */
+  G.FX.clear();
+  G.FX.flameBurst(victim.x, victim.y, '#ef7938', 1);
+  const flameCount = G.FX.count();
+  G.FX.vortex(victim.x, victim.y, 100, '#33ccb3');
+  const vortexCount = G.FX.count() - flameCount;
+  G.FX.plume(victim.x, victim.y, '#ffd08a', 1);
+  const plumeCount = G.FX.count() - flameCount - vortexCount;
+  G.FX.victoryBurst(victim.x, victim.y, '#7ef2c0');
+  const victoryCount = G.FX.count() - flameCount - vortexCount - plumeCount;
+  if (flameCount < 8 || vortexCount < 3 || plumeCount < 5 || victoryCount < 12) {
+    report.errors.push('元素专属火舌/风眼/蒸汽/清波特效未生成足量粒子: ' + JSON.stringify({ flameCount, vortexCount, plumeCount, victoryCount }));
+  }
+  const swiftTheme = G.Render.boardTheme({ seed: 123, waveData: { mut: { list: [G.CFG.MUTATIONS[0]] } } });
+  const swiftThemeAgain = G.Render.boardTheme({ seed: 123, waveData: { mut: { list: [G.CFG.MUTATIONS[0]] } } });
+  const ironTheme = G.Render.boardTheme({ seed: 123, waveData: { mut: { list: [G.CFG.MUTATIONS[4]] } } });
+  if (swiftTheme.key !== 'swift' || swiftTheme.key !== swiftThemeAgain.key || ironTheme.key !== 'iron') {
+    report.errors.push('棋盘主题未按地脉突变稳定映射: ' + JSON.stringify({ swift: swiftTheme.key, iron: ironTheme.key }));
+  }
+  const tideBg = G.Render.backgroundKey({ waveData: { mut: { list: [G.CFG.MUTATIONS[0]] } } });
+  const echoBg = G.Render.backgroundKey({ waveData: { mut: { list: [G.CFG.MUTATIONS[1]] } } });
+  const emberBg = G.Render.backgroundKey({ waveData: { mut: { list: [G.CFG.MUTATIONS[3]] } } });
+  if (tideBg !== 'tide' || echoBg !== 'echo' || emberBg !== 'ember') {
+    report.errors.push('背景图未按地脉主题映射: ' + JSON.stringify({ tideBg, echoBg, emberBg }));
+  }
+  if (G.Render.BACKGROUND_PATHS.home !== 'assets/backgrounds/home-leyline-runtime-v1.jpg') {
+    report.errors.push('首页未使用独立的完整背景图: ' + String(G.Render.BACKGROUND_PATHS.home));
+  }
+  if (G.Render.PAGE_BG_BLUR !== 12) {
+    report.errors.push('整屏页面未配置首页背景模糊层: ' + String(G.Render.PAGE_BG_BLUR));
+  }
+  if (G.Render.BOARD_SURFACE_ALPHA !== 0.38 || G.Render.BOARD_CELL_ALPHA !== 0.20) {
+    report.errors.push('棋盘未配置背景融合透明度: ' + JSON.stringify({
+      surface: G.Render.BOARD_SURFACE_ALPHA, cell: G.Render.BOARD_CELL_ALPHA
+    }));
+  }
+  const themedEnemy = G.Enemies.create('drifter', 1, 0, 1, { list: [G.CFG.MUTATIONS[0]] });
+  if (G.CFG.CELL !== 64 || G.CFG.COLS !== 10 || G.CFG.ROWS !== 13 ||
+    themedEnemy.color !== G.CFG.BOARD_THEMES.swift.enemy ||
+    !(G.Render.TOWER_SCALE >= 1.12 && G.Render.MONSTER_SCALE >= 1.10)) {
+    report.errors.push('大格棋盘 / 主题怪物前景色 / 单位视觉放大未接通: ' + JSON.stringify({
+      grid: [G.CFG.CELL, G.CFG.COLS, G.CFG.ROWS], enemy: themedEnemy.color,
+      towerScale: G.Render.TOWER_SCALE, monsterScale: G.Render.MONSTER_SCALE
+    }));
+  }
+
+  G.Game.reset();
+  G.Game.startRun();
+  const electroTower = G.Towers.create('electro', 4, 5);
+  g.towers.push(electroTower);
+  const electroVictim = G.Enemies.create('bulwark', 1, 0, 1);
+  electroVictim.x = electroTower.x + 30;
+  electroVictim.y = electroTower.y;
+  electroVictim.spawnT = 0;
+  g.enemies.push(electroVictim);
+  const electroNode = { x: electroTower.x, y: electroTower.y, a: electroTower,
+    b: { elem: 'hydro', x: electroTower.x + 20, y: electroTower.y },
+    def: { name: '感电', color: '#b7a3ff', overloadElem: 'electro' } };
+  const electroBefore = electroVictim.hp;
+  for (let i = 0; i < G.CFG.RES.overload.threshold / G.CFG.RES.overload.charge; i++) {
+    G.Resonance.addOverload(g, electroNode, electroVictim);
+  }
+  if (g.overload.elem !== 'electro' || electroVictim.hp >= electroBefore) {
+    report.errors.push('雷系天网未从雷塔向目标结算: ' + JSON.stringify({ elem: g.overload.elem, dmg: electroBefore - electroVictim.hp }));
+  }
+
+  G.Game.reset();
+  G.Game.startRun();
+  const eye = G.Enemies.create('drifter', 1, 0, 1);
+  const pulled = G.Enemies.create('drifter', 1, 0, 1);
+  eye.x = G.CFG.BX + G.CFG.CELL * 4.5;
+  eye.y = G.LAY.boardY + G.CFG.CELL * 5.5;
+  pulled.x = eye.x + 90;
+  pulled.y = eye.y;
+  eye.speed = 0; pulled.speed = 0;
+  eye.spawnT = 0; pulled.spawnT = 0;
+  g.enemies.push(eye, pulled);
+  const windNode = { x: eye.x, y: eye.y, a: { elem: 'anemo', x: eye.x - 20, y: eye.y },
+    b: { elem: 'pyro', x: eye.x + 20, y: eye.y },
+    def: { name: '扩散', color: '#33ccb3', overloadElem: 'anemo' } };
+  for (let i = 0; i < G.CFG.RES.overload.threshold / G.CFG.RES.overload.charge; i++) {
+    G.Resonance.addOverload(g, windNode, eye);
+  }
+  const pullX = pulled.x;
+  G.Enemies.update(g, 1 / 30);
+  if (g.overload.elem !== 'anemo' || !(pulled.x < pullX) || pulled.x < G.CFG.BX) {
+    report.errors.push('风眼没有把范围内敌人安全牵向中心: ' + JSON.stringify({ elem: g.overload.elem, from: pullX, to: pulled.x }));
+  }
 }
 
 /* ---------------------- 首次遭遇弹窗：独立走一遍 ----------------------

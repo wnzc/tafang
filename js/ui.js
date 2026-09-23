@@ -34,6 +34,31 @@
     return null;
   };
 
+  /* --------------------------- 首次实战教程 --------------------------- */
+  UI.TUTORIAL_STEPS = [
+    { title: '地脉会自己找路', lines: ['两侧入口的流线会通往核心', '你的炮塔能让它立刻改道'], next: '看明白了' },
+    { title: '第一座塔：改写路线', lines: ['已替你选中「炎爆」', '点亮棋盘上的火焰格建造'], target: { col: 3, row: 3, tower: 'pyro' } },
+    { title: '第二座塔：制造反应', lines: ['把「澄流」贴在炎爆旁边', '相邻异元素会自动触发反应'], target: { col: 4, row: 3, tower: 'hydro' } },
+    { title: '别把路完全封死', lines: ['封路时，怪物会转头拆塔', '留出路线，才能用空间换时间'], next: '开始守卫' }
+  ];
+  UI.tutorialPanel = function () {
+    var h = S(184), w = 560;
+    return { x: mid(w), y: G.LAY.boardY + Math.round(G.LAY.boardH * 0.50) - h / 2, w: w, h: h };
+  };
+  UI.tutorialSkip = function () {
+    var p = UI.tutorialPanel();
+    return { x: p.x + p.w - S(104), y: p.y + S(16), w: S(82), h: S(36) };
+  };
+  UI.tutorialNext = function () {
+    var p = UI.tutorialPanel();
+    return { x: p.x + p.w - S(196), y: p.y + p.h - S(60), w: S(174), h: S(42) };
+  };
+  UI.tutorialTarget = function (step) {
+    var s = UI.TUTORIAL_STEPS[step];
+    if (!s || !s.target) return null;
+    return { col: s.target.col, row: s.target.row, tower: s.target.tower };
+  };
+
   UI.towerPanel = function (t) {
     var LAY = G.LAY;
     // 面板尺寸跟着字号档走：29px 标题 + 21px 属性 + 40px 按钮
@@ -55,7 +80,14 @@
   /*  菜单 / 结算（位置挂在整块版式顶端，config.buildLayout 已按内容高度居中） */
   /* ------------------------------------------------------------------ */
   UI.menuStart = function () {
-    return { x: mid(256), y: G.LAY.menuTop + S(340), w: 256, h: S(88) };
+    return { x: mid(256), y: UI.menuSubY() - S(100), w: 256, h: S(76) };
+  };
+  /* 菜单操作区从安全区底边反推：物理底部会留出 home 指示条 + 约 16~20px 呼吸位。 */
+  UI.menuFooterY = function () {
+    return G.LAY.designH - (G.LAY.insetBottom || 0) - S(32);
+  };
+  UI.menuSubY = function () {
+    return UI.menuFooterY() - S(132);
   };
   /* 三个次级按钮并排：玩法 / 图鉴 / 设置。
    * 从两个（252 宽）改成三个（196 宽）：三块加两道间距正好 628，
@@ -71,7 +103,7 @@
    * 「玩法说明」因此简写成「玩法」：四个按钮字数一致，视觉才齐。 */
   var SUB_W = 142, SUB_GAP = 20;
   function subBtn(i) {
-    return { x: 46 + i * (SUB_W + SUB_GAP), y: G.LAY.menuTop + S(452), w: SUB_W, h: S(72) };
+    return { x: 46 + i * (SUB_W + SUB_GAP), y: UI.menuSubY(), w: SUB_W, h: S(66) };
   }
   UI.menuSubBtns = function () {
     return [

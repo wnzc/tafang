@@ -301,7 +301,7 @@
     if (k === 'super') return d.radius + ' 范围 ' + d.dmg + ' · 易伤 +' +
       Math.round(d.extra * 100) + '% ' + d.dur + 's';
     if (k === 'freeze') return d.radius + ' 范围定身 ' + d.dur + 's';
-    if (k === 'swirl') return d.radius + ' 范围 ' + d.dmg + ' 伤害 · 击退 ' + d.push;
+    if (k === 'swirl') return d.radius + ' 范围 ' + d.dmg + ' 伤害 · 聚怪';
     if (k === 'crystal') return '邻塔 ' + d.dur + 's 结晶盾 · 免疫啃咬';
     if (k === 'bloom') return d.radius + ' 范围 ' + d.dmg + ' 二段伤害';
     if (k === 'quicken') return '邻塔伤害 +' + Math.round(d.bonus * 100) + '% 持续 ' + d.dur + 's';

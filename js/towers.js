@@ -142,14 +142,12 @@
       }
 
     } else if (d.kind === 'gust') {
-      // 流风：龙卷扫过，范围伤害 + 沿行进反方向推开。
-      // 推的位移走 Enemies.push 的速度场（分帧走完，不是瞬移），
-      // 同一个免疫窗也在这里生效，所以风塔 + 扩散反应不会把怪来回抖。
-      G.FX.ring(mx, my, 10, d.aoe, col, 0.4, 3);
+      // 流风：大范围风眼，把怪卷向锁定点，低伤但给反应制造密集目标。
+      G.FX.vortex(target.x, target.y, d.aoe, col);
       G.FX.burst(target.x, target.y, 8, col, 120);
       applyAoE(game, target.x, target.y, d.aoe, st.dmg, function (e) {
-        G.Enemies.push(e, e.fx, e.fy, d.push);
-        G.FX.spark(e.x, e.y, Math.atan2(e.fy, e.fx), 0.7, 2, col, 120, 0.22);
+        G.Enemies.pull(e, target.x, target.y, d.pull);
+        G.FX.spark(e.x, e.y, Math.atan2(target.y - e.y, target.x - e.x), 0.7, 2, col, 120, 0.22);
       });
 
     } else if (d.kind === 'spike') {
