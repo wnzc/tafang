@@ -25,8 +25,121 @@
     ember: 'assets/backgrounds/leyline-ember-runtime-v1.jpg',
     home: 'assets/backgrounds/home-leyline-runtime-v1.jpg'
   };
+  Render.UI_ART_PATHS = {
+    plate: 'assets/ui/button-plate-v1.png',
+    controls: 'assets/ui/control-icons-v1.png',
+    elements: 'assets/ui/element-icons-v1.png',
+    popup: 'assets/ui/popup-frame-v1.png'
+  };
   var backgroundImages = {};
   var coreImage = { img: null, ready: false, tried: false };
+  var uiArt = {};
+
+  function ensureUiArt(key) {
+    var rec = uiArt[key];
+    if (rec) return rec;
+    rec = uiArt[key] = { img: null, ready: false };
+    try {
+      var img = null;
+      if (typeof wx !== 'undefined' && typeof wx.createImage === 'function') img = wx.createImage();
+      else if (typeof Image === 'function') img = new Image();
+      if (!img) return rec;
+      rec.img = img;
+      img.onload = function () { rec.ready = true; };
+      var src = Render.UI_ART_PATHS[key];
+      if (typeof wx === 'undefined' && typeof location !== 'undefined' && /\/tools\//.test(location.pathname)) src = '../' + src;
+      img.src = src;
+    } catch (e) { /* Existing Canvas controls remain usable if an image cannot load. */ }
+    return rec;
+  }
+
+  function drawButtonPlate(ctx, r, alpha) {
+    var rec = ensureUiArt('plate');
+    if (!rec.ready || !rec.img || !ctx.drawImage) return false;
+    var img = rec.img, iw = img.width, ih = img.height;
+    /* 原图四周有透明留白；只取牌面主体，手机缩放后按钮仍有足够厚度。 */
+    var srcX = iw * 0.018, srcY = ih * 0.115;
+    var srcW = iw - srcX * 2, srcH = ih * 0.72;
+    var side = srcW * 0.26, destSide = Math.min(r.h * 0.82, r.w * 0.30);
+    ctx.save();
+    ctx.globalAlpha *= alpha === undefined ? 1 : alpha;
+    ctx.drawImage(img, srcX, srcY, side, srcH, r.x, r.y, destSide, r.h);
+    ctx.drawImage(img, srcX + side, srcY, srcW - side * 2, srcH,
+      r.x + destSide, r.y, r.w - destSide * 2, r.h);
+    ctx.drawImage(img, srcX + srcW - side, srcY, side, srcH,
+      r.x + r.w - destSide, r.y, destSide, r.h);
+    ctx.restore();
+    return true;
+  }
+
+  var CONTROL_ICONS = {
+    play: 0, help: 1, codex: 2, echo: 3,
+    settings: 4, speed: 5, upgrade: 6, sell: 7,
+    back: 8, home: 9, continue: 10, replay: 11,
+    plus: 12, minus: 13, sound: 14, vibrate: 15
+  };
+  function drawControlIcon(ctx, key, x, y, size) {
+    var rec = ensureUiArt('controls');
+    if (!rec.ready || !rec.img || !ctx.drawImage || CONTROL_ICONS[key] === undefined) return false;
+    var i = CONTROL_ICONS[key], sw = rec.img.width / 4, sh = rec.img.height / 4;
+    ctx.drawImage(rec.img, (i % 4) * sw, Math.floor(i / 4) * sh, sw, sh,
+      x - size / 2, y - size / 2, size, size);
+    return true;
+  }
+
+  var ELEMENT_ICONS = { pyro: 0, hydro: 1, dendro: 2, anemo: 3, electro: 4, geo: 5, cryo: 6 };
+  function drawElementArt(ctx, elem, x, y, size) {
+    var rec = ensureUiArt('elements');
+    if (!rec.ready || !rec.img || !ctx.drawImage || ELEMENT_ICONS[elem] === undefined) return false;
+    var i = ELEMENT_ICONS[elem], sw = rec.img.width / 3, sh = rec.img.height / 3;
+    ctx.drawImage(rec.img, (i % 3) * sw, Math.floor(i / 3) * sh, sw, sh,
+      x - size / 2, y - size / 2, size, size);
+    return true;
+  }
+
+  function drawPopupArt(ctx, r, alpha) {
+    var rec = ensureUiArt('popup');
+    if (!rec.ready || !rec.img || !ctx.drawImage) return false;
+    var img = rec.img, iw = img.width, ih = img.height;
+    var sx = iw * 0.23, sy = ih * 0.18;
+    var dx = Math.min(r.w * 0.20, r.h * 0.22), dy = Math.min(r.h * 0.20, r.w * 0.22);
+    var xs = [0, sx, iw - sx], ys = [0, sy, ih - sy];
+    var ws = [sx, iw - 2 * sx, sx], hs = [sy, ih - 2 * sy, sy];
+    var xd = [r.x, r.x + dx, r.x + r.w - dx], yd = [r.y, r.y + dy, r.y + r.h - dy];
+    var wd = [dx, r.w - 2 * dx, dx], hd = [dy, r.h - 2 * dy, dy];
+    ctx.save();
+    ctx.globalAlpha *= alpha === undefined ? 1 : alpha;
+    for (var row = 0; row < 3; row++) {
+      for (var col = 0; col < 3; col++) {
+        ctx.drawImage(img, xs[col], ys[row], ws[col], hs[row], xd[col], yd[row], wd[col], hd[row]);
+      }
+    }
+    ctx.restore();
+    return true;
+  }
+
+  function buttonIcon(label) {
+    if (label.indexOf('开始') >= 0 || label.indexOf('开波') >= 0) return 'play';
+    if (label.indexOf('玩法') >= 0) return 'help';
+    if (label.indexOf('图鉴') >= 0) return 'codex';
+    if (label.indexOf('回响') >= 0 || label.indexOf('深渊') >= 0) return 'echo';
+    if (label.indexOf('设置') >= 0) return 'settings';
+    if (label.indexOf('升级') >= 0 || label.indexOf('维修') >= 0) return 'upgrade';
+    if (label.indexOf('回收') >= 0) return 'sell';
+    if (label.indexOf('首页') >= 0) return 'home';
+    if (label.indexOf('返回') >= 0) return 'back';
+    if (label.indexOf('再来') >= 0) return 'replay';
+    if (label.indexOf('继续') >= 0 || label.indexOf('明白') >= 0 || label.indexOf('守卫') >= 0) return 'continue';
+    return null;
+  }
+
+  function drawButtonLabel(ctx, r, label, size, color, icon) {
+    var key = icon || buttonIcon(label);
+    var hasIcon = key && r.w >= S(108) && drawControlIcon(ctx, key,
+      r.x + Math.min(S(30), r.w * 0.21), r.y + r.h / 2, Math.min(S(34), r.h * 0.64));
+    txt(ctx, label, r.x + r.w / 2 + (hasIcon ? S(10) : 0), r.y + r.h / 2,
+      size, color, 'center', 'bold');
+  }
 
   /** 本波第一条地脉突变决定棋盘主题；双突变不做杂色拼盘，保持一波一景。 */
   Render.boardTheme = function (game) {
@@ -294,42 +407,28 @@
   function drawSettingsBtn(ctx, game, LAY) {
     var sb = LAY.settingsBtn;
     var cy = sb.y + sb.h / 2;
-    U.roundRect(ctx, sb.x, sb.y, sb.w, sb.h, S(14));
-    ctx.fillStyle = 'rgba(120,150,200,0.13)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(150,190,255,0.40)';
-    ctx.lineWidth = 1.8;
-    ctx.stroke();
-
-    /* 齿轮：自绘几何，不依赖图标字体。放在胶囊下方右侧空档，不挡战斗 */
-    var u = sb.h / 54, cx = sb.x + 26 * u;
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.scale(u, u);
-    ctx.fillStyle = '#9fd0ff';
-    for (var gi = 0; gi < 8; gi++) {
-      ctx.save();
-      ctx.rotate(gi / 8 * Math.PI * 2);
-      ctx.fillRect(-2.4, -13, 4.8, 6);
-      ctx.restore();
+    if (!drawButtonPlate(ctx, sb)) {
+      U.roundRect(ctx, sb.x, sb.y, sb.w, sb.h, S(14));
+      ctx.fillStyle = 'rgba(120,150,200,0.13)'; ctx.fill();
+      ctx.strokeStyle = 'rgba(150,190,255,0.40)'; ctx.lineWidth = 1.8; ctx.stroke();
     }
-    ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = CFG.C.board;
-    ctx.beginPath(); ctx.arc(0, 0, 3.4, 0, Math.PI * 2); ctx.fill();
-    ctx.restore();
+    if (!drawControlIcon(ctx, 'settings', sb.x + S(24), cy, S(30))) {
+      U.poly(ctx, sb.x + S(24), cy, S(13), 8, 0);
+      ctx.strokeStyle = '#9fd0ff'; ctx.lineWidth = 2; ctx.stroke();
+    }
 
     txt(ctx, '设置', sb.x + 64, cy, 13, '#cfe3ff', 'center', 'bold');
   }
 
   function drawSpeedBtn(ctx, game, LAY) {
     var r = LAY.speedBtn, fast = game.speed === 2;
-    U.roundRect(ctx, r.x, r.y, r.w, r.h, S(14));
-    ctx.fillStyle = fast ? 'rgba(255,210,122,0.18)' : 'rgba(120,150,200,0.13)';
-    ctx.fill();
-    ctx.strokeStyle = fast ? '#ffd27a' : 'rgba(150,190,255,0.40)';
-    ctx.lineWidth = 1.8;
-    ctx.stroke();
-    txt(ctx, '×' + game.speed, r.x + r.w / 2, r.y + r.h / 2, 17,
+    if (!drawButtonPlate(ctx, r)) {
+      U.roundRect(ctx, r.x, r.y, r.w, r.h, S(14));
+      ctx.fillStyle = fast ? 'rgba(255,210,122,0.18)' : 'rgba(120,150,200,0.13)'; ctx.fill();
+      ctx.strokeStyle = fast ? '#ffd27a' : 'rgba(150,190,255,0.40)'; ctx.lineWidth = 1.8; ctx.stroke();
+    }
+    drawControlIcon(ctx, 'speed', r.x + S(28), r.y + r.h / 2, S(32));
+    txt(ctx, '×' + game.speed, r.x + r.w * 0.68, r.y + r.h / 2, 17,
       fast ? '#ffe1a0' : '#cfe3ff', 'center', 'bold');
   }
 
@@ -560,27 +659,30 @@
       ctx.fill();
     }
 
-    U.roundRect(ctx, p.x, p.y, p.w, p.h, S(20));
-    ctx.fillStyle = 'rgba(19,34,58,0.97)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(143,238,255,0.52)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    if (!drawPopupArt(ctx, p)) {
+      U.roundRect(ctx, p.x, p.y, p.w, p.h, S(20));
+      ctx.fillStyle = 'rgba(19,34,58,0.97)'; ctx.fill();
+      ctx.strokeStyle = 'rgba(143,238,255,0.52)'; ctx.lineWidth = 2; ctx.stroke();
+    }
     txt(ctx, '新手引导  ' + (step + 1) + ' / 4', p.x + S(24), p.y + S(28), 12, '#8feeff', 'left', 'bold');
     txt(ctx, info.title, p.x + S(24), p.y + S(66), 20, CFG.C.text, 'left', 'bold');
     txt(ctx, info.lines[0], p.x + S(24), p.y + S(98), 13, CFG.C.dim);
     txt(ctx, info.lines[1], p.x + S(24), p.y + S(122), 13, CFG.C.dim);
 
     var skip = G.UI.tutorialSkip();
-    U.roundRect(ctx, skip.x, skip.y, skip.w, skip.h, S(12));
-    ctx.fillStyle = 'rgba(255,255,255,0.07)'; ctx.fill();
+    if (!drawButtonPlate(ctx, skip)) {
+      U.roundRect(ctx, skip.x, skip.y, skip.w, skip.h, S(12));
+      ctx.fillStyle = 'rgba(255,255,255,0.07)'; ctx.fill();
+    }
     txt(ctx, '跳过', skip.x + skip.w / 2, skip.y + skip.h / 2, 12, CFG.C.dim, 'center', 'bold');
     if (info.next) {
       var next = G.UI.tutorialNext();
-      U.roundRect(ctx, next.x, next.y, next.w, next.h, S(14));
-      ctx.fillStyle = 'rgba(82,224,197,0.16)'; ctx.fill();
-      ctx.strokeStyle = '#54e0c5'; ctx.lineWidth = 1.8; ctx.stroke();
-      txt(ctx, info.next, next.x + next.w / 2, next.y + next.h / 2, 14, '#b7fff0', 'center', 'bold');
+      if (!drawButtonPlate(ctx, next)) {
+        U.roundRect(ctx, next.x, next.y, next.w, next.h, S(14));
+        ctx.fillStyle = 'rgba(82,224,197,0.16)'; ctx.fill();
+        ctx.strokeStyle = '#54e0c5'; ctx.lineWidth = 1.8; ctx.stroke();
+      }
+      drawButtonLabel(ctx, next, info.next, 14, '#b7fff0', 'continue');
     } else {
       txt(ctx, '点亮棋盘上的标记', p.x + p.w - S(24), p.y + p.h - S(38), 13,
         CFG.ELEM[target.tower].soft, 'right', 'bold');
@@ -1226,17 +1328,17 @@
     if (game.state === 'prep') {
       var r = LAY.waveBtn;
       var pr = game.prepT / CFG.PREP_TIME;
-      U.roundRect(ctx, r.x, r.y, r.w, r.h, 16);
-      ctx.fillStyle = 'rgba(46,230,168,0.13)';
-      ctx.fill();
-      ctx.strokeStyle = 'rgba(46,230,168,0.6)';
-      ctx.lineWidth = 2.2;
-      ctx.stroke();
+      if (!drawButtonPlate(ctx, r)) {
+        U.roundRect(ctx, r.x, r.y, r.w, r.h, 16);
+        ctx.fillStyle = 'rgba(46,230,168,0.13)'; ctx.fill();
+        ctx.strokeStyle = 'rgba(46,230,168,0.6)'; ctx.lineWidth = 2.2; ctx.stroke();
+      }
       U.roundRect(ctx, r.x, r.y + r.h - 6, r.w * (1 - pr), 6, 3);
       ctx.fillStyle = 'rgba(46,230,168,0.85)';
       ctx.fill();
       var bonus = Math.floor(game.prepT * CFG.PREP_BONUS) + CFG.EARLY_WAVE_BONUS;
-      txt(ctx, '提前开波  第 ' + (game.wave + 1) + ' 波', r.x + S(20), r.y + r.h / 2, 20, '#8ef7d8', 'left', 'bold');
+      drawControlIcon(ctx, 'play', r.x + S(24), r.y + r.h / 2, S(32));
+      txt(ctx, '开始第 ' + (game.wave + 1) + ' 波', r.x + S(48), r.y + r.h / 2, 18, '#8ef7d8', 'left', 'bold');
       txt(ctx, '+' + bonus + ' 能量', r.x + r.w - S(20), r.y + r.h / 2, 18, '#ffd27a', 'right', 'bold');
     } else if (game.state === 'wave' && game.waveData) {
       var left = game.waveData.events.length - game.spawnIdx + game.enemies.length;
@@ -1280,16 +1382,22 @@
     }
 
     ctx.globalAlpha = disabled ? 0.42 : 1;
-    U.roundRect(ctx, r.x, r.y, r.w, r.h, S(16));
-    ctx.fillStyle = active ? U.hexToRgba(col, 0.18) : CFG.C.chip;
-    ctx.fill();
+    var cardArt = drawButtonPlate(ctx, r);
+    if (!cardArt) {
+      U.roundRect(ctx, r.x, r.y, r.w, r.h, S(16));
+      ctx.fillStyle = active ? U.hexToRgba(col, 0.18) : CFG.C.chip;
+      ctx.fill();
+    }
+    U.roundRect(ctx, r.x + S(4), r.y + S(5), r.w - S(8), r.h - S(10), S(14));
     ctx.strokeStyle = active ? col : 'rgba(150,190,255,0.22)';
     ctx.lineWidth = active ? 2.5 : 1.5;
     ctx.stroke();
 
     var icx = r.x + r.w / 2, icy = r.y + S(26);
     if (kind.type === 'tower') {
-      elemIcon(ctx, CFG.TOWERS[kind.key].elem, icx, icy, S(15));
+      if (!drawElementArt(ctx, CFG.TOWERS[kind.key].elem, icx, icy, S(36))) {
+        elemIcon(ctx, CFG.TOWERS[kind.key].elem, icx, icy, S(15));
+      }
     }
 
     txt(ctx, title, r.x + r.w / 2, r.y + S(58), 15, CFG.C.text, 'center', 'bold');
@@ -1307,21 +1415,23 @@
     var st = G.Towers.stats(t);
 
     ctx.globalAlpha = 0.98;
-    U.roundRect(ctx, p.x, p.y, p.w, p.h, S(14));
-    ctx.fillStyle = CFG.C.panelFill;
-    ctx.fill();
-    ctx.strokeStyle = U.hexToRgba(el.color, 0.7);
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    if (!drawButtonPlate(ctx, p)) {
+      U.roundRect(ctx, p.x, p.y, p.w, p.h, S(14));
+      ctx.fillStyle = CFG.C.panelFill; ctx.fill();
+      ctx.strokeStyle = U.hexToRgba(el.color, 0.7); ctx.lineWidth = 2; ctx.stroke();
+    } else {
+      U.roundRect(ctx, p.x + S(9), p.y + S(10), p.w - S(18), p.h - S(20), S(12));
+      ctx.fillStyle = 'rgba(8,18,35,0.72)'; ctx.fill();
+    }
     ctx.globalAlpha = 1;
 
-    txt(ctx, t.def.name + '  Lv.' + t.level, p.x + S(12), p.y + S(24), 17, el.soft, 'left', 'bold');
+    txt(ctx, t.def.name + '  Lv.' + t.level, p.x + S(16), p.y + S(32), 17, el.soft, 'left', 'bold');
     txt(ctx, '伤害 ' + st.dmg.toFixed(0) + ' · 射程 ' + st.range.toFixed(0),
-      p.x + S(12), p.y + S(54), 12, CFG.C.dim);
+      p.x + S(16), p.y + S(70), 12, CFG.C.dim);
     if (t.clusterSize >= 2) {
-      txt(ctx, '共振链 ×' + t.clusterSize, p.x + p.w - S(12), p.y + S(54), 12, el.color, 'right', 'bold');
+      txt(ctx, '共振链 ×' + t.clusterSize, p.x + p.w - S(16), p.y + S(70), 12, el.color, 'right', 'bold');
     } else if (t.suppressed) {
-      txt(ctx, '被压制', p.x + p.w - S(12), p.y + S(54), 12, '#ff5d6c', 'right', 'bold');
+      txt(ctx, '被压制', p.x + p.w - S(16), p.y + S(70), 12, '#ff5d6c', 'right', 'bold');
     }
 
     var actCost = G.Towers.actionCost(t);
@@ -1334,13 +1444,13 @@
   }
 
   function btn(ctx, r, label, enabled, col) {
-    U.roundRect(ctx, r.x, r.y, r.w, r.h, S(12));
-    ctx.fillStyle = enabled ? U.hexToRgba(col, 0.16) : CFG.C.offFill;
-    ctx.fill();
-    ctx.strokeStyle = enabled ? U.hexToRgba(col, 0.8) : 'rgba(255,255,255,0.12)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    txt(ctx, label, r.x + r.w / 2, r.y + r.h / 2, 14, enabled ? col : CFG.C.dim, 'center', 'bold');
+    if (!drawButtonPlate(ctx, r, enabled ? 1 : 0.55)) {
+      U.roundRect(ctx, r.x, r.y, r.w, r.h, S(12));
+      ctx.fillStyle = enabled ? U.hexToRgba(col, 0.16) : CFG.C.offFill; ctx.fill();
+      ctx.strokeStyle = enabled ? U.hexToRgba(col, 0.8) : 'rgba(255,255,255,0.12)';
+      ctx.lineWidth = 2; ctx.stroke();
+    }
+    drawButtonLabel(ctx, r, label, 14, enabled ? col : CFG.C.dim);
   }
 
   /* --------------------------- 提示层 --------------------------- */
@@ -1434,40 +1544,40 @@
 
   /** 次级按钮（设置 / 玩法 / 返回）：描边是主色，底色很淡 */
   function ghostBtn(ctx, r, label, size, col) {
-    U.roundRect(ctx, r.x, r.y, r.w, r.h, S(18));
-    ctx.fillStyle = U.hexToRgba(col, 0.12);
-    ctx.fill();
-    ctx.strokeStyle = U.hexToRgba(col, 0.55);
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    txt(ctx, label, r.x + r.w / 2, r.y + r.h / 2, size, col, 'center', 'bold');
+    if (!drawButtonPlate(ctx, r)) {
+      U.roundRect(ctx, r.x, r.y, r.w, r.h, S(18));
+      ctx.fillStyle = U.hexToRgba(col, 0.12); ctx.fill();
+      ctx.strokeStyle = U.hexToRgba(col, 0.55); ctx.lineWidth = 2; ctx.stroke();
+    }
+    drawButtonLabel(ctx, r, label, size, col);
   }
 
   /** 主按钮（开始防守 / 再来一局）：渐变底 + 呼吸描边 */
   function mainBtn(ctx, r, label, size, t) {
     var pulse = 0.5 + 0.5 * Math.sin(t * 3);
-    U.roundRect(ctx, r.x, r.y, r.w, r.h, S(22));
-    var g = ctx.createLinearGradient(r.x, 0, r.x + r.w, 0);
-    g.addColorStop(0, 'rgba(47,143,255,' + (0.25 + pulse * 0.16) + ')');
-    g.addColorStop(1, 'rgba(46,230,168,' + (0.25 + pulse * 0.16) + ')');
-    ctx.fillStyle = g;
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(140,230,255,' + (0.55 + pulse * 0.45) + ')';
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
-    str(ctx, label, r.x + r.w / 2, r.y + r.h / 2, size, '#e9f2ff', 'center', 'bold', 5);
+    if (!drawButtonPlate(ctx, r)) {
+      U.roundRect(ctx, r.x, r.y, r.w, r.h, S(22));
+      var g = ctx.createLinearGradient(r.x, 0, r.x + r.w, 0);
+      g.addColorStop(0, 'rgba(47,143,255,' + (0.25 + pulse * 0.16) + ')');
+      g.addColorStop(1, 'rgba(46,230,168,' + (0.25 + pulse * 0.16) + ')');
+      ctx.fillStyle = g; ctx.fill();
+      ctx.strokeStyle = 'rgba(140,230,255,' + (0.55 + pulse * 0.45) + ')';
+      ctx.lineWidth = 2.5; ctx.stroke();
+    }
+    drawButtonLabel(ctx, r, label, size, '#e9f2ff');
   }
 
   /** 设置页的开关（开 / 关） */
-  function toggle(ctx, r, on, onCol) {
+  function toggle(ctx, r, on, onCol, icon) {
     var col = onCol || '#5fc8ff';
-    U.roundRect(ctx, r.x, r.y, r.w, r.h, S(14));
-    ctx.fillStyle = on ? U.hexToRgba(col, 0.16) : CFG.C.offFill;
-    ctx.fill();
-    ctx.strokeStyle = on ? U.hexToRgba(col, 0.7) : 'rgba(140,160,190,0.35)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    txt(ctx, on ? '开' : '关', r.x + r.w / 2, r.y + r.h / 2, 16,
+    if (!drawButtonPlate(ctx, r, on ? 1 : 0.58)) {
+      U.roundRect(ctx, r.x, r.y, r.w, r.h, S(14));
+      ctx.fillStyle = on ? U.hexToRgba(col, 0.16) : CFG.C.offFill; ctx.fill();
+      ctx.strokeStyle = on ? U.hexToRgba(col, 0.7) : 'rgba(140,160,190,0.35)';
+      ctx.lineWidth = 2; ctx.stroke();
+    }
+    drawControlIcon(ctx, icon, r.x + S(25), r.y + r.h / 2, S(28));
+    txt(ctx, on ? '开' : '关', r.x + r.w * 0.68, r.y + r.h / 2, 16,
       on ? col : CFG.C.dim, 'center', 'bold');
   }
 
@@ -1527,20 +1637,20 @@
     var fb = G.UI.setFontBtns();
     for (i = 0; i < fb.length; i++) {
       var on = (i === CFG.FONT_LEVEL);
-      U.roundRect(ctx, fb[i].x, fb[i].y, fb[i].w, fb[i].h, S(14));
-      ctx.fillStyle = on ? 'rgba(95,200,255,0.20)' : CFG.C.offFill;
-      ctx.fill();
-      ctx.strokeStyle = on ? 'rgba(143,230,255,0.85)' : 'rgba(140,160,190,0.3)';
-      ctx.lineWidth = on ? 2.4 : 1.6;
-      ctx.stroke();
+      if (!drawButtonPlate(ctx, fb[i], on ? 1 : 0.60)) {
+        U.roundRect(ctx, fb[i].x, fb[i].y, fb[i].w, fb[i].h, S(14));
+        ctx.fillStyle = on ? 'rgba(95,200,255,0.20)' : CFG.C.offFill; ctx.fill();
+        ctx.strokeStyle = on ? 'rgba(143,230,255,0.85)' : 'rgba(140,160,190,0.3)';
+        ctx.lineWidth = on ? 2.4 : 1.6; ctx.stroke();
+      }
       txt(ctx, CFG.FONT_LEVELS[i].name, fb[i].x + fb[i].w / 2, fb[i].y + fb[i].h / 2,
         18, on ? '#cdefff' : CFG.C.dim, 'center', 'bold');
     }
 
     // 音效 / 震动开关
     var A = G.Audio;
-    toggle(ctx, G.UI.setToggle(1), A ? !A.isMuted() : false);
-    toggle(ctx, G.UI.setToggle(3), G.Settings.get('vibrate'), '#2ee6a8');
+    toggle(ctx, G.UI.setToggle(1), A ? !A.isMuted() : false, '#5fc8ff', 'sound');
+    toggle(ctx, G.UI.setToggle(3), G.Settings.get('vibrate'), '#2ee6a8', 'vibrate');
 
     // 音量：− / 轨道 / ＋，轨道可直接点
     var vol = G.Settings.get('volume');
@@ -1575,13 +1685,14 @@
   }
 
   function smallRoundBtn(ctx, r, label) {
-    U.roundRect(ctx, r.x, r.y, r.w, r.h, S(14));
-    ctx.fillStyle = 'rgba(95,200,255,0.12)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(143,230,255,0.5)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    txt(ctx, label, r.x + r.w / 2, r.y + r.h / 2, 20, '#cdefff', 'center', 'bold');
+    if (!drawButtonPlate(ctx, r)) {
+      U.roundRect(ctx, r.x, r.y, r.w, r.h, S(14));
+      ctx.fillStyle = 'rgba(95,200,255,0.12)'; ctx.fill();
+      ctx.strokeStyle = 'rgba(143,230,255,0.5)'; ctx.lineWidth = 2; ctx.stroke();
+    }
+    if (!drawControlIcon(ctx, label === '−' ? 'minus' : 'plus', r.x + r.w / 2, r.y + r.h / 2, S(33))) {
+      txt(ctx, label, r.x + r.w / 2, r.y + r.h / 2, 20, '#cdefff', 'center', 'bold');
+    }
   }
 
   /* ----------------------------- 玩法页 ----------------------------- */
@@ -1626,7 +1737,8 @@
     pageBg(ctx, LAY);
 
     var oy = LAY.overTop;
-    panel(ctx, 66, oy + S(16), 588, S(602));
+    var resultPanel = { x: 66, y: oy + S(16), w: 588, h: S(602) };
+    if (!drawPopupArt(ctx, resultPanel)) panel(ctx, resultPanel.x, resultPanel.y, resultPanel.w, resultPanel.h);
     var col = win ? '#2ee6a8' : '#ff5d6c';
     str(ctx, win ? '防线守住了' : '核心被击穿', 360, oy + S(74), 34, col, 'center', 'bold', 6);
     /* 副标题位：有「本局新解锁」时改报解锁（那是成长系统里最该被看见的一刻，
@@ -1661,14 +1773,7 @@
       txt(ctx, rows[i][1], 580, y, hot ? 24 : 20, hot ? '#7ef2c0' : CFG.C.text, 'right', 'bold');
     }
 
-    var b = G.UI.againBtn();
-    U.roundRect(ctx, b.x, b.y, b.w, b.h, S(22));
-    ctx.fillStyle = 'rgba(47,143,255,0.2)';
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(140,230,255,0.7)';
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
-    str(ctx, '再来一局', b.x + b.w / 2, b.y + b.h / 2, 22, '#e9f2ff', 'center', 'bold', 5);
+    mainBtn(ctx, G.UI.againBtn(), '再来一局', 22, game.time);
     ghostBtn(ctx, G.UI.againHome(), '回到首页', 20, '#8fe6ff');
   }
 
@@ -1739,13 +1844,15 @@
     var tabs = G.UI.codexTabs();
     for (var i = 0; i < tabs.length; i++) {
       var tr = tabs[i], on = (i === tab);
-      U.roundRect(ctx, tr.x, tr.y, tr.w, tr.h, S(16));
-      ctx.fillStyle = on ? 'rgba(95,200,255,0.18)' : 'rgba(255,255,255,0.03)';
-      ctx.fill();
-      ctx.strokeStyle = on ? 'rgba(143,230,255,0.8)' : 'rgba(140,160,190,0.25)';
-      ctx.lineWidth = on ? 2.4 : 1.5;
-      ctx.stroke();
-      txt(ctx, G.UI.CODEX_TABS[i], tr.x + tr.w / 2, tr.y + tr.h / 2, 18,
+      if (!drawButtonPlate(ctx, tr, on ? 1 : 0.62)) {
+        U.roundRect(ctx, tr.x, tr.y, tr.w, tr.h, S(16));
+        ctx.fillStyle = on ? 'rgba(95,200,255,0.18)' : 'rgba(255,255,255,0.03)'; ctx.fill();
+        ctx.strokeStyle = on ? 'rgba(143,230,255,0.8)' : 'rgba(140,160,190,0.25)';
+        ctx.lineWidth = on ? 2.4 : 1.5; ctx.stroke();
+      }
+      var tabIcon = i === 0 ? 'codex' : i === 1 ? 'upgrade' : 'echo';
+      drawControlIcon(ctx, tabIcon, tr.x + S(32), tr.y + tr.h / 2, S(29));
+      txt(ctx, G.UI.CODEX_TABS[i], tr.x + tr.w / 2 + S(10), tr.y + tr.h / 2, 18,
         on ? '#cdefff' : CFG.C.dim, 'center', 'bold');
     }
 
@@ -1910,7 +2017,9 @@
     var cx = rc.x + rc.w / 2;
     glowPanel(ctx, rc, S(18), 'rgba(42,60,94,0.9)', U.hexToRgba(info.color, 0.20),
       U.hexToRgba(info.color, 0.5), 2);
-    elemIcon(ctx, info.elem, cx, rc.y + S(60), S(22), info.soft);
+    if (!drawElementArt(ctx, info.elem, cx, rc.y + S(60), S(52))) {
+      elemIcon(ctx, info.elem, cx, rc.y + S(60), S(22), info.soft);
+    }
     var textPos = G.UI.codexCellText(rc);
     txt(ctx, info.name, cx, textPos.nameY, 17, CFG.C.text, 'center', 'bold');
     /* 副标题只写「造价 · 攻击方式」：格宽 204 在放大的字号档下容得下
@@ -2036,9 +2145,12 @@
     ctx.fillStyle = 'rgba(10,18,32,0.80)';
     ctx.fillRect(0, 0, 720, LAY.designH);
 
-    var pulse = 0.5 + 0.5 * Math.sin(t * 2.6);
-    glowPanel(ctx, p, S(24), CFG.C.panel2, U.hexToRgba(info.color, 0.20),
-      U.hexToRgba(info.color, 0.5 + pulse * 0.3), 2.5);
+    var popArt = { x: p.x, y: p.y - S(40), w: p.w, h: p.h + S(40) };
+    if (!drawPopupArt(ctx, popArt)) {
+      var pulse = 0.5 + 0.5 * Math.sin(t * 2.6);
+      glowPanel(ctx, p, S(24), CFG.C.panel2, U.hexToRgba(info.color, 0.20),
+        U.hexToRgba(info.color, 0.5 + pulse * 0.3), 2.5);
+    }
 
     var L = G.UI.POP_LINES;
     txt(ctx, '首 次 遭 遇', p.x + p.w / 2, p.y + S(L.title), 15, '#ffd27a', 'center', 'bold');

@@ -63,12 +63,12 @@
     var LAY = G.LAY;
     // 面板尺寸跟着字号档走：29px 标题 + 21px 属性 + 40px 按钮
     // 宽必须容得下「伤害 152 · 射程 168」加右对齐的「共振链 ×7」两段不叠字
-    var w = S(280), h = S(116), pad = S(12);
+    var w = S(304), h = S(160), pad = S(12);
     var x = U.clamp(t.x - w / 2, LAY.boardX + 4, LAY.boardX + LAY.boardW - w - 4);
     var y = t.y - CFG.CELL / 2 - h - 8;
     if (y < LAY.boardY + 4) y = t.y + CFG.CELL / 2 + 8;
     if (y + h > LAY.boardY + LAY.boardH - 4) y = LAY.boardY + LAY.boardH - h - 4;
-    var bw = S(124), bh = S(40), by = y + S(70);
+    var bw = S(134), bh = S(44), by = y + S(104);
     return {
       x: x, y: y, w: w, h: h,
       up: { x: x + pad, y: by, w: bw, h: bh },

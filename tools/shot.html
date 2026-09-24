@@ -90,6 +90,7 @@
     }
   } else if (scene === 'game') {
     G.Game.startRun();
+    if (G.Game.tutorial.active) G.Game.finishTutorial();
     /* 战斗展示图不需要被「首次遭遇」弹窗打断（本机存过 echo_seen 时它才会弹，
      * 弹不弹取决于上一次截图写下的记录 —— 那种「有时弹有时不弹」最坑）。
      * markAllSeen 只作用于本次会话，不动用户的记录。 */
@@ -262,6 +263,7 @@
   } else if (scene === 'tech') {
     // 选中一座塔 → 打开塔面板，检查面板与 Toast 的字号
     G.Game.startRun();
+    if (G.Game.tutorial.active) G.Game.finishTutorial();
     place([[4, 5, 'pyro'], [5, 5, 'hydro'], [4, 6, 'electro']]);
     var t0 = G.Game.towers[0];
     G.Game.onTap(t0.x, t0.y);       // 点塔身 = 选中（走真实命中逻辑）
